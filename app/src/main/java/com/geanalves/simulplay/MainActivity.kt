@@ -319,7 +319,8 @@ class MainActivity : Activity(), Link.Listener {
         footer.visibility = overlay.visibility
         playerView.visibility = if (kind == "media") View.VISIBLE else View.GONE
         web.visibility = if (kind == "youtube") View.VISIBLE else View.INVISIBLE
-        footer.text = "TV: $myName"
+        val ver = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "" }
+        footer.text = "TV: $myName  ·  versão $ver"
     }
 
     // ------------------------------------------------------------------ conexão
