@@ -31,7 +31,10 @@
         iv_load_policy: 3, modestbranding: 1, origin: location.origin
       },
       events: {
-        onReady: function () { report(); },
+        onReady: function () {
+          try { Android.onRates(JSON.stringify(player.getAvailablePlaybackRates())); } catch (e) {}
+          report();
+        },
         onStateChange: function () { report(); },
         onError: function (e) { Android.onError(String(e.data)); }
       }
@@ -47,6 +50,7 @@
   function play() { if (player && player.playVideo) player.playVideo(); }
   function pause() { if (player && player.pauseVideo) player.pauseVideo(); }
   function seek(ms) { if (player && player.seekTo) player.seekTo(ms / 1000, true); }
+  function rate(r) { if (player && player.setPlaybackRate) player.setPlaybackRate(r); }
   function stopVideo() { if (player && player.stopVideo) player.stopVideo(); }
 </script>
 </body>

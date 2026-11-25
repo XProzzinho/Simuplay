@@ -92,6 +92,14 @@ class MainActivity : Activity(), Link.Listener {
     private var ytPosAt = 0L
     private var ytDur = 0L
     private var ytLoaded = false
+    // sincronia suave do YouTube (acelera/desacelera em vez de pular)
+    private var ytRates = listOf(1.0)
+    private var ytRate = 1.0
+    private var ytRateUntil = 0L
+    private var ytPlayingSince = 0L
+    private var ytLastStamp = 0L
+    private val ytDiffs = ArrayDeque<Long>()
+    private var ytCorrectAfter = 0L
     private var ytPageReady = false
     private var ytPending: String? = null
 
@@ -564,6 +572,7 @@ class MainActivity : Activity(), Link.Listener {
         titleText.text = if (kind == "youtube") "" else "♪ $title"
         if (kind == "youtube") {
             ytState = -1; ytPos = 0; ytDur = 0
+            ytRate = 1.0; ytRateUntil = 0; ytPlayingSince = 0; ytDiffs.clear(); ytCorrectAfter = 0
             if (!ytLoaded) {
                 val html = assets.open("yt.html").bufferedReader().readText()
                 // a "origem" identifica o app pro YouTube (sem isso alguns vídeos não abrem)
@@ -712,11 +721,12 @@ class MainActivity : Activity(), Link.Listener {
         if (!link.synced) return
         val phoneNow = link.phoneNow() - adjMs
         val now = SystemClock.elapsedRealtime()
-        val est = if (ytState == 1) ytPos + (now - ytPosAt) else ytPos
+        val est = if (ytState == 1) ytPos + ((now - ytPosAt) * ytRate).toLong() else ytPos
 
         if (!s.playing) {
             ui.removeCallbacks(startRunnable); startScheduled = false
             if (ytState == 1 || ytState == 3) web.evaluateJavascript("pause()", null)
+            ytPlayingSince = 0L; ytRateUntil = 0; setYtRate(1.0)
             if (abs(est - s.pos) > 1000 && now > seekCooldownUntil && ytState != -1) {
                 web.evaluateJavascript("seek(${s.pos})", null); seekCooldownUntil = now + 1500
             }
@@ -724,6 +734,7 @@ class MainActivity : Activity(), Link.Listener {
         }
         if (phoneNow < s.at) {
             if (ytState == 1 && !startScheduled) web.evaluateJavascript("pause()", null)
+            ytPlayingSince = 0L; ytRateUntil = 0; setYtRate(1.0)
             if (abs(est - s.pos) > 400 && now > seekCooldownUntil && ytState != -1) {
                 web.evaluateJavascript("seek(${s.pos})", null); seekCooldownUntil = now + 800
             }
@@ -740,15 +751,67 @@ class MainActivity : Activity(), Link.Listener {
         }
         if (startScheduled) return
         val target = s.pos + (phoneNow - s.at)
-        if (ytState != 1 && ytState != 3 && now > seekCooldownUntil) {
-            web.evaluateJavascript("seek(${target + 400}); play()", null)
-            seekCooldownUntil = now + 2000
+        if (ytState != 1) {
+            ytPlayingSince = 0L
+            // parado sem motivo (não é carregando): volta a tocar; só pula se estiver MUITO longe
+            if (ytState != 3 && now > seekCooldownUntil) {
+                if (abs(est - target) > 2500) web.evaluateJavascript("seek(${target + 1200}); play()", null)
+                else web.evaluateJavascript("play()", null)
+                seekCooldownUntil = now + 2500
+            }
             return
         }
-        if (autoSync && ytState == 1 && abs(est - target) > 300 && now > seekCooldownUntil) {
-            web.evaluateJavascript("seek(${target + 350})", null)
-            seekCooldownUntil = now + 3000
+        if (ytPlayingSince == 0L) { ytPlayingSince = now; ytDiffs.clear() }
+        if (!autoSync) return
+
+        // terminou de acelerar/desacelerar: volta ao normal
+        if (ytRateUntil > 0 && now >= ytRateUntil) {
+            setYtRate(1.0); ytRateUntil = 0; ytDiffs.clear(); ytCorrectAfter = now + 2500
+            return
         }
+        if (ytRateUntil > 0) return
+
+        // a posição do YouTube anda em "degraus"; junta várias medidas e usa a do meio
+        if (ytPosAt != ytLastStamp) {
+            ytLastStamp = ytPosAt
+            ytDiffs.addLast(est - target)
+            while (ytDiffs.size > 15) ytDiffs.removeFirst()
+        }
+        if (now - ytPlayingSince < 3000 || now < ytCorrectAfter || ytDiffs.size < 10) return
+        val diff = ytDiffs.sorted()[ytDiffs.size / 2]
+        when {
+            abs(diff) > 5000 && now > seekCooldownUntil -> {
+                // muito longe (raro): aí sim pula, uma vez
+                web.evaluateJavascript("seek(${target + 1500})", null)
+                seekCooldownUntil = now + 8000; ytDiffs.clear(); ytCorrectAfter = now + 6000
+            }
+            diff < -150 -> {
+                // TV atrasada: acelera um pouquinho até alcançar
+                val fast = ytRates.filter { it in 1.05..1.5 }.minOrNull()
+                if (fast != null) { setYtRate(fast); ytRateUntil = now + ((-diff) / (fast - 1.0)).toLong().coerceAtMost(15_000) }
+                else if (diff < -1500 && now > seekCooldownUntil) {
+                    web.evaluateJavascript("seek(${target + 1200})", null); seekCooldownUntil = now + 8000; ytCorrectAfter = now + 5000
+                }
+                ytDiffs.clear()
+            }
+            diff > 150 -> {
+                // TV adiantada: desacelera um pouquinho (ou dá uma pausinha)
+                val slow = ytRates.filter { it in 0.5..0.95 }.maxOrNull()
+                if (slow != null) { setYtRate(slow); ytRateUntil = now + (diff / (1.0 - slow)).toLong().coerceAtMost(15_000) }
+                else {
+                    web.evaluateJavascript("pause()", null)
+                    ui.postDelayed({ web.evaluateJavascript("play()", null) }, diff.coerceAtMost(3000))
+                    ytCorrectAfter = now + diff + 2500
+                }
+                ytDiffs.clear()
+            }
+        }
+    }
+
+    private fun setYtRate(r: Double) {
+        if (r == ytRate) return
+        ytRate = r
+        web.evaluateJavascript("rate($r)", null)
     }
 
     inner class YtBridge {
@@ -760,6 +823,16 @@ class MainActivity : Activity(), Link.Listener {
                 ytPos = posMs.toLong()
                 ytPosAt = t
                 if (durMs > 0) ytDur = durMs.toLong()
+            }
+        }
+
+        @JavascriptInterface
+        fun onRates(json: String) {
+            ui.post {
+                try {
+                    val a = org.json.JSONArray(json)
+                    ytRates = (0 until a.length()).map { a.getDouble(it) }
+                } catch (_: Exception) {}
             }
         }
 
