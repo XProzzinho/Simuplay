@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  #p { position: absolute; inset: 0; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<div id="p"></div>
+<script>
+  var player = null, apiReady = false, pendingId = null;
+  var tag = document.createElement('script');
+  tag.src = "https://www.youtube.com/iframe_api";
+  document.head.appendChild(tag);
+
+  function onYouTubeIframeAPIReady() {
+    apiReady = true;
+    if (pendingId) { var id = pendingId; pendingId = null; load(id); }
+  }
+
+  function load(id) {
+    if (!apiReady) { pendingId = id; return; }
+    if (player && player.cueVideoById) { player.cueVideoById(id); return; }
+    player = new YT.Player('p', {
+      width: '100%', height: '100%', videoId: id,
+      playerVars: {
+        autoplay: 0, controls: 0, disablekb: 1, fs: 0, rel: 0, playsinline: 1,
+        iv_load_policy: 3, modestbranding: 1, origin: location.origin
+      },
+      events: {
+        onReady: function () { report(); },
+        onStateChange: function () { report(); },
+        onError: function (e) { Android.onError(String(e.data)); }
+      }
+    });
+  }
+
+  function report() {
+    if (!player || !player.getCurrentTime) return;
+    Android.onState(player.getPlayerState(), player.getCurrentTime() * 1000, player.getDuration() * 1000);
+  }
+  setInterval(report, 100);
+
+  function play() { if (player && player.playVideo) player.playVideo(); }
+  function pause() { if (player && player.pauseVideo) player.pauseVideo(); }
+  function seek(ms) { if (player && player.seekTo) player.seekTo(ms / 1000, true); }
+  function stopVideo() { if (player && player.stopVideo) player.stopVideo(); }
+</script>
+</body>
+</html>
