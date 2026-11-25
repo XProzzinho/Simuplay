@@ -209,8 +209,11 @@ class BtManager(private val act: Activity, private val send: (JSONObject) -> Uni
         main.postDelayed({ if (scanning) { try { a.cancelDiscovery() } catch (_: Exception) {}; scanning = false; pushState() } }, 15_000)
     }
 
+    private fun bondedWith(addr: String): BluetoothDevice? =
+        try { adapter?.bondedDevices?.firstOrNull { it.address.equals(addr, true) } } catch (_: Exception) { null }
+
     private fun device(addr: String): BluetoothDevice? =
-        found[addr] ?: try { adapter?.getRemoteDevice(addr) } catch (_: Exception) { null }
+        bondedWith(addr) ?: found[addr] ?: try { adapter?.getRemoteDevice(addr) } catch (_: Exception) { null }
 
     private fun connect(addr: String) {
         val a = adapter ?: return
@@ -219,9 +222,12 @@ class BtManager(private val act: Activity, private val send: (JSONObject) -> Uni
         try { if (a.isDiscovering) a.cancelDiscovery() } catch (_: Exception) {}
         scanning = false
         pendingConnect = addr
-        if (d.bondState != BluetoothDevice.BOND_BONDED) {
+        // já pareada (aparece na lista da TV): vai direto pro conectar
+        val already = bondedWith(addr) != null || d.bondState == BluetoothDevice.BOND_BONDED
+        if (!already) {
             msg("Pareando com ${safeName(d) ?: "a caixa"}…")
-            if (!d.createBond()) { pendingConnect = null; msg("Não consegui parear. Deixe a caixa piscando e tente de novo.") }
+            val ok = try { d.createBond() } catch (_: Exception) { false }
+            if (!ok) fallback(d) // não deixou parear pelo app: abre o Bluetooth da TV
             pushState()
             return
         }
