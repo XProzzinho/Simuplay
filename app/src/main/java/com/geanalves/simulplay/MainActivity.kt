@@ -433,8 +433,8 @@ class MainActivity : Activity(), Link.Listener {
             Updater.Stage.AVAILABLE -> { updateText.text = "Nova versão do Simulplay (${r?.version})"; updateBtn.text = "Atualizar"; updateBtn.visibility = View.VISIBLE }
             Updater.Stage.DOWNLOADING -> { updateText.text = "Baixando atualização… ${Updater.percent}%"; updateBtn.visibility = View.GONE }
             Updater.Stage.READY -> {
-                updateText.text = if (Updater.needsPermission(this)) "Atualização pronta. Libere \"apps desconhecidos\" pro Simulplay" else "Atualização pronta"
-                updateBtn.text = if (Updater.needsPermission(this)) "Liberar" else "Instalar agora"
+                updateText.text = "Atualização pronta"
+                updateBtn.text = if (Updater.needsPermission(this)) "Liberar e instalar" else "Instalar agora"
                 updateBtn.visibility = View.VISIBLE
             }
             Updater.Stage.INSTALLING -> { updateText.text = "Instalando…"; updateBtn.visibility = View.GONE }
@@ -511,7 +511,7 @@ class MainActivity : Activity(), Link.Listener {
                     stopMedia()
                     audio.start(h, j.optInt("delay", 300))
                     statusText.text = "Modo caixinha"
-                    titleText.text = "🔊 Tocando o som do celular de $phoneName"
+                    titleText.text = "Tocando o som do celular de $phoneName"
                 } else {
                     audio.stop()
                     statusText.text = "Conectado a $phoneName\nEsperando você mandar algo pelo celular"
