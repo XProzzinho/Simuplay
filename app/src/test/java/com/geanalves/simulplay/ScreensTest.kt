@@ -18,7 +18,7 @@ import java.time.Duration
 /** Gera prints da tela da TV (só pra conferir o visual). Rode com -Dshots=1 */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34], qualifiers = "w960dp-h540dp-land-xhdpi-television")
+@Config(sdk = [34], qualifiers = "w960dp-h540dp-land-television-xhdpi")
 class ScreensTest {
     private fun shot(v: View, name: String) {
         val bmp = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
