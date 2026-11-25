@@ -60,6 +60,7 @@ class MainActivity : Activity(), Link.Listener {
     private lateinit var footer: TextView
     private lateinit var audio: AudioReceiver
     private lateinit var caixinha: CaixinhaView
+    private lateinit var bt: BtManager
 
     private var host: String? = null
     private var phoneName = ""
@@ -139,6 +140,8 @@ class MainActivity : Activity(), Link.Listener {
 
         audio = AudioReceiver({ link.offset }, { adjMs })
         link = Link(this, myName, this)
+        bt = BtManager(this) { link.send(it) }
+        bt.start()
         link.start()
         ui.post(tick)
         Updater.listener = { refreshUpdate() }
@@ -148,6 +151,7 @@ class MainActivity : Activity(), Link.Listener {
     override fun onDestroy() {
         ui.removeCallbacks(tick)
         ui.removeCallbacks(updateCheck)
+        bt.stop()
         Updater.listener = null
         link.stop()
         audio.stop()
@@ -480,6 +484,13 @@ class MainActivity : Activity(), Link.Listener {
         this.host = host
         statusText.text = "Conectado a $phoneName\nEsperando você mandar algo pelo celular"
         updateOverlay()
+        ui.postDelayed({ bt.pushState() }, 600)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == BtManager.REQ_PERM) bt.onPermissionResult()
     }
 
     override fun onDisconnected() {
@@ -504,6 +515,7 @@ class MainActivity : Activity(), Link.Listener {
                 statusText.text = "Conectado a $phoneName\nEsperando você mandar algo pelo celular"
             }
             "adj" -> adjMs = j.optInt("ms")
+            "bt" -> bt.handle(j)
             "cfg" -> {
                 autoSync = j.optBoolean("sync", true)
                 val q = j.optInt("quality", 0)

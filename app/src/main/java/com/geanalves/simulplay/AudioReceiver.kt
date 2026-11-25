@@ -115,6 +115,7 @@ class AudioReceiver(
             AudioManager.AUDIO_SESSION_ID_GENERATE,
         )
         var written = 0L
+        val stamp = android.media.AudioTimestamp()
         val silence = ByteArray(rate * bytesPerFrame / 10) // 100 ms
         try {
             track.play()
@@ -122,9 +123,15 @@ class AudioReceiver(
                 val p = queue.poll(200, TimeUnit.MILLISECONDS) ?: continue
                 // horário na TV em que esse pedaço deve sair no alto-falante
                 val target = p.ts - clockOffset() + delayMs + adjMs()
-                val head = track.playbackHeadPosition.toLong() and 0xffffffffL
-                val pending = (written - head).coerceAtLeast(0)
-                val playAt = SystemClock.elapsedRealtime() + pending * 1000 / rate
+                // quando o pedaço vai sair de verdade (conta também o atraso de caixa Bluetooth)
+                val nowEl = SystemClock.elapsedRealtime()
+                val playAt = if (track.getTimestamp(stamp) && stamp.framePosition > 0) {
+                    val stampEl = nowEl + (stamp.nanoTime - System.nanoTime()) / 1_000_000
+                    stampEl + (written - stamp.framePosition).coerceAtLeast(0) * 1000 / rate
+                } else {
+                    val head = track.playbackHeadPosition.toLong() and 0xffffffffL
+                    nowEl + (written - head).coerceAtLeast(0) * 1000 / rate
+                }
                 val late = playAt - target
                 if (late > 60) continue                       // atrasado: pula esse pedaço
                 if (late < -30) {                              // adiantado: espera com silêncio
