@@ -30,6 +30,9 @@ class AudioReceiver(
 
     fun isRunning() = running
 
+    /** força do som agora, em 16 faixas (0 a 1), pra animação da tela */
+    @Volatile var bands = FloatArray(16); private set
+
     fun start(host: String, delayMs: Int) {
         stop()
         val my = ++gen
@@ -65,6 +68,31 @@ class AudioReceiver(
         running = false
         gen++
         try { socket?.close() } catch (_: Exception) {}
+    }
+
+    /** mede o volume de cada pedacinho do áudio (16 partes) */
+    private fun measure(d: ByteArray): FloatArray {
+        val out = FloatArray(16)
+        val frames = d.size / 4
+        if (frames < 16) return out
+        val per = frames / 16
+        for (b in 0 until 16) {
+            var sum = 0.0
+            var n = 0
+            var f = b * per
+            val end = f + per
+            while (f < end) {
+                val i = f * 4
+                val l = (d[i].toInt() and 0xff) or (d[i + 1].toInt() shl 8)
+                val r = (d[i + 2].toInt() and 0xff) or (d[i + 3].toInt() shl 8)
+                val m = (l.toShort() + r.toShort()) / 2.0
+                sum += m * m
+                n++
+                f += 2
+            }
+            out[b] = (Math.sqrt(sum / n) / 9000.0).coerceIn(0.0, 1.0).toFloat()
+        }
+        return out
     }
 
     private fun playLoop(delayMs: Int, my: Int) {
@@ -107,6 +135,7 @@ class AudioReceiver(
                 }
                 track.write(p.data, 0, p.data.size)
                 written += p.data.size / bytesPerFrame
+                bands = measure(p.data)
             }
         } catch (_: Exception) {
         } finally {

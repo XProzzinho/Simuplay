@@ -41,7 +41,9 @@ import androidx.media3.ui.PlayerView
 import org.json.JSONObject
 import kotlin.math.abs
 
-private val LILAC = Color.parseColor("#B79CFF")
+private val LILAC = Color.parseColor("#2563EB")
+private val INK = Color.parseColor("#0F172A")
+private val SOFT = Color.parseColor("#64748B")
 
 @SuppressLint("SetJavaScriptEnabled")
 class MainActivity : Activity(), Link.Listener {
@@ -57,6 +59,7 @@ class MainActivity : Activity(), Link.Listener {
     private lateinit var titleText: TextView
     private lateinit var footer: TextView
     private lateinit var audio: AudioReceiver
+    private lateinit var caixinha: CaixinhaView
 
     private var host: String? = null
     private var phoneName = ""
@@ -198,7 +201,7 @@ class MainActivity : Activity(), Link.Listener {
             gravity = Gravity.CENTER
             background = GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.parseColor("#22137A"), Color.parseColor("#07061C"), Color.parseColor("#2A0F6B")),
+                intArrayOf(Color.WHITE, Color.parseColor("#F1F6FD"), Color.parseColor("#E3EDFB")),
             )
         }
         overlay.addView(ImageView(this).apply { setImageResource(R.drawable.logo) }, LinearLayout.LayoutParams(dp(130), dp(130)))
@@ -206,13 +209,13 @@ class MainActivity : Activity(), Link.Listener {
             setSpan(android.text.style.ForegroundColorSpan(LILAC), 5, 9, 0)
         }
         overlay.addView(TextView(this).apply {
-            text = brand; textSize = 56f; setTextColor(Color.WHITE)
+            text = brand; textSize = 56f; setTextColor(INK)
             typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
             setPadding(0, dp(10), 0, 0)
         })
         overlay.addView(TextView(this).apply {
             text = "Receba a transmissão em sua TV"; textSize = 22f
-            setTextColor(Color.parseColor("#D6D3F5")); gravity = Gravity.CENTER
+            setTextColor(SOFT); gravity = Gravity.CENTER
         })
         statusText = TextView(this).apply {
             textSize = 20f; gravity = Gravity.CENTER
@@ -225,7 +228,7 @@ class MainActivity : Activity(), Link.Listener {
         }
         overlay.addView(statusText, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { topMargin = dp(28) })
         titleText = TextView(this).apply {
-            textSize = 28f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+            textSize = 28f; setTextColor(INK); gravity = Gravity.CENTER
             typeface = Typeface.DEFAULT_BOLD
             setPadding(dp(60), dp(24), dp(60), 0); maxLines = 2
         }
@@ -235,16 +238,16 @@ class MainActivity : Activity(), Link.Listener {
             visibility = View.GONE
         }
         val track = FrameLayout(this).apply {
-            background = GradientDrawable().apply { setColor(Color.argb(60, 255, 255, 255)); cornerRadius = dp(3).toFloat() }
+            background = GradientDrawable().apply { setColor(Color.parseColor("#DBEAFE")); cornerRadius = dp(3).toFloat() }
         }
         nowFill = View(this).apply {
             background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                intArrayOf(Color.parseColor("#9D5CFF"), Color.parseColor("#E879F9"))).apply { cornerRadius = dp(3).toFloat() }
+                intArrayOf(Color.parseColor("#06B6D4"), Color.parseColor("#2563EB"))).apply { cornerRadius = dp(3).toFloat() }
         }
         track.addView(nowFill, FrameLayout.LayoutParams(0, MATCH_PARENT))
         nowBar.addView(track, LinearLayout.LayoutParams(dp(520), dp(6)))
         nowTime = TextView(this).apply {
-            textSize = 16f; setTextColor(Color.parseColor("#D6D3F5")); gravity = Gravity.CENTER
+            textSize = 16f; setTextColor(Color.parseColor("#475569")); gravity = Gravity.CENTER
             setPadding(0, dp(10), 0, 0)
         }
         nowBar.addView(nowTime, LinearLayout.LayoutParams(dp(520), WRAP_CONTENT))
@@ -253,38 +256,42 @@ class MainActivity : Activity(), Link.Listener {
             setSpan(android.text.style.ForegroundColorSpan(LILAC), 10, length, 0)
         }
         overlay.addView(TextView(this).apply {
-            text = tag; textSize = 18f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD
+            text = tag; textSize = 18f; setTextColor(INK); typeface = Typeface.DEFAULT_BOLD
             setPadding(0, dp(30), 0, 0); gravity = Gravity.CENTER
         }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         root.addView(overlay, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
         footer = TextView(this).apply {
-            textSize = 15f; setTextColor(Color.parseColor("#A9A5D6")); setPadding(dp(24), dp(14), dp(24), dp(14))
+            textSize = 15f; setTextColor(SOFT); setPadding(dp(24), dp(14), dp(24), dp(14))
         }
         root.addView(footer, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.BOTTOM or Gravity.START))
+
+        // tela do modo caixinha (som do celular)
+        caixinha = CaixinhaView(this) { if (::audio.isInitialized) audio.bands else FloatArray(16) }
+        root.addView(caixinha, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
         // aviso de pausa por cima do vídeo
         pauseOverlay = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setBackgroundColor(Color.argb(110, 7, 6, 28))
+            setBackgroundColor(Color.argb(170, 255, 255, 255))
             visibility = View.GONE
         }
         val pauseCircle = FrameLayout(this).apply {
             background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL; setColor(Color.argb(190, 29, 24, 80)); setStroke(dp(2), Color.parseColor("#9D5CFF"))
+                shape = GradientDrawable.OVAL; setColor(Color.WHITE); setStroke(dp(2), Color.parseColor("#2563EB"))
             }
         }
         pauseCircle.addView(ImageView(this).apply {
-            setImageDrawable(PauseBars(Color.WHITE))
+            setImageDrawable(PauseBars(Color.parseColor("#2563EB")))
         }, FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER))
         pauseOverlay.addView(pauseCircle, LinearLayout.LayoutParams(dp(120), dp(120)))
         pauseOverlay.addView(TextView(this).apply {
-            text = "Pausado"; textSize = 26f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD
+            text = "Pausado"; textSize = 26f; setTextColor(INK); typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER; setPadding(0, dp(18), 0, dp(4))
         })
         pauseTitle = TextView(this).apply {
-            textSize = 18f; setTextColor(Color.parseColor("#D6D3F5")); gravity = Gravity.CENTER; maxLines = 1
+            textSize = 18f; setTextColor(Color.parseColor("#475569")); gravity = Gravity.CENTER; maxLines = 1
             setPadding(dp(60), 0, dp(60), 0)
         }
         pauseOverlay.addView(pauseTitle)
@@ -295,14 +302,14 @@ class MainActivity : Activity(), Link.Listener {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = GradientDrawable().apply {
-                setColor(Color.argb(200, 20, 14, 60)); cornerRadius = dp(22).toFloat(); setStroke(dp(1), Color.argb(60, 255, 255, 255))
+                setColor(Color.argb(240, 255, 255, 255)); cornerRadius = dp(22).toFloat(); setStroke(dp(1), Color.parseColor("#DCE6F5"))
             }
             setPadding(dp(10), dp(8), dp(22), dp(8))
             alpha = 0f
         }
         startToast.addView(ImageView(this).apply { setImageResource(R.drawable.logo) }, LinearLayout.LayoutParams(dp(36), dp(36)))
         startToastText = TextView(this).apply {
-            textSize = 17f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD; maxLines = 1
+            textSize = 17f; setTextColor(INK); typeface = Typeface.DEFAULT_BOLD; maxLines = 1
             setPadding(dp(12), 0, 0, 0)
         }
         startToast.addView(startToastText)
@@ -315,20 +322,20 @@ class MainActivity : Activity(), Link.Listener {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#E6251E5C")); cornerRadius = dp(18).toFloat()
-                setStroke(dp(2), Color.parseColor("#9D5CFF"))
+                setColor(Color.WHITE); cornerRadius = dp(18).toFloat()
+                setStroke(dp(2), Color.parseColor("#2563EB"))
             }
             setPadding(dp(20), dp(10), dp(10), dp(10))
             visibility = View.GONE
         }
-        updateText = TextView(this).apply { textSize = 17f; setTextColor(Color.WHITE); setPadding(0, 0, dp(16), 0) }
+        updateText = TextView(this).apply { textSize = 17f; setTextColor(INK); setPadding(0, 0, dp(16), 0) }
         updateBar.addView(updateText)
         updateBtn = android.widget.Button(this).apply {
             textSize = 17f; isAllCaps = false; setTextColor(Color.WHITE)
             stateListAnimator = null
-            val normal = GradientDrawable().apply { setColor(Color.parseColor("#7C3AED")); cornerRadius = dp(22).toFloat() }
+            val normal = GradientDrawable().apply { setColor(Color.parseColor("#2563EB")); cornerRadius = dp(22).toFloat() }
             val focused = GradientDrawable().apply {
-                setColor(Color.parseColor("#9D5CFF")); cornerRadius = dp(22).toFloat(); setStroke(dp(3), Color.WHITE)
+                setColor(Color.parseColor("#1D4ED8")); cornerRadius = dp(22).toFloat(); setStroke(dp(3), INK)
             }
             background = android.graphics.drawable.StateListDrawable().apply {
                 addState(intArrayOf(android.R.attr.state_focused), focused)
@@ -400,10 +407,10 @@ class MainActivity : Activity(), Link.Listener {
         val d = resources.displayMetrics.density
         val (bg, stroke, fg) = when {
             s.startsWith("Conectado") || s.startsWith("Tocando") || s.startsWith("Modo") ->
-                Triple("#3322C55E", "#8022C55E", "#C9FAD9")
-            s.startsWith("Procurando") || s.startsWith("Carregando") || s.startsWith("Pausado") -> Triple("#22FFFFFF", "#559D5CFF", "#E4DCFF")
+                Triple("#ECFDF3", "#A7F3D0", "#047857")
+            s.startsWith("Procurando") || s.startsWith("Carregando") || s.startsWith("Pausado") -> Triple("#EFF6FF", "#BFDBFE", "#1E40AF")
             s.isEmpty() -> Triple("#00000000", "#00000000", "#FFFFFF")
-            else -> Triple("#40EF4444", "#99EF4444", "#FECACA")
+            else -> Triple("#FEF2F2", "#FECACA", "#B91C1C")
         }
         statusText.setTextColor(Color.parseColor(fg))
         statusText.background = GradientDrawable().apply {
@@ -478,6 +485,7 @@ class MainActivity : Activity(), Link.Listener {
     override fun onDisconnected() {
         stopMedia()
         audio.stop()
+        caixinha.hide()
         host = null
     }
 
@@ -510,10 +518,12 @@ class MainActivity : Activity(), Link.Listener {
                 if (j.optBoolean("on")) {
                     stopMedia()
                     audio.start(h, j.optInt("delay", 300))
+                    caixinha.show(phoneName)
                     statusText.text = "Modo caixinha"
                     titleText.text = "Tocando o som do celular de $phoneName"
                 } else {
                     audio.stop()
+                    caixinha.hide()
                     statusText.text = "Conectado a $phoneName\nEsperando você mandar algo pelo celular"
                     titleText.text = ""
                 }
