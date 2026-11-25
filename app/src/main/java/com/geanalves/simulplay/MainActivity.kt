@@ -21,6 +21,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.media3.common.C
@@ -39,6 +40,8 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import org.json.JSONObject
 import kotlin.math.abs
+
+private val LILAC = Color.parseColor("#B79CFF")
 
 @SuppressLint("SetJavaScriptEnabled")
 class MainActivity : Activity(), Link.Listener {
@@ -66,6 +69,7 @@ class MainActivity : Activity(), Link.Listener {
     private var seekCooldownUntil = 0L
     private var startScheduled = false
     private var lastSpeed = 1f
+    @Volatile private var autoSync = true
     private var hasVideo = false
 
     // estado do YouTube vindo da página
@@ -114,10 +118,14 @@ class MainActivity : Activity(), Link.Listener {
         link = Link(this, myName, this)
         link.start()
         ui.post(tick)
+        Updater.listener = { refreshUpdate() }
+        ui.post(updateCheck)
     }
 
     override fun onDestroy() {
         ui.removeCallbacks(tick)
+        ui.removeCallbacks(updateCheck)
+        Updater.listener = null
         link.stop()
         audio.stop()
         player.release()
@@ -163,35 +171,146 @@ class MainActivity : Activity(), Link.Listener {
         }
         root.addView(web, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
+        val d = resources.displayMetrics.density
+        fun dp(v: Int) = (v * d).toInt()
         overlay = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             background = GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(Color.parseColor("#1B3C7A"), Color.parseColor("#0E1320")),
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.parseColor("#22137A"), Color.parseColor("#07061C"), Color.parseColor("#2A0F6B")),
             )
         }
+        overlay.addView(ImageView(this).apply { setImageResource(R.drawable.logo) }, LinearLayout.LayoutParams(dp(130), dp(130)))
+        val brand = android.text.SpannableStringBuilder("SimulPlay").apply {
+            setSpan(android.text.style.ForegroundColorSpan(LILAC), 5, 9, 0)
+        }
         overlay.addView(TextView(this).apply {
-            text = "Simulplay"; textSize = 64f; setTextColor(Color.WHITE)
+            text = brand; textSize = 56f; setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+            setPadding(0, dp(10), 0, 0)
+        })
+        overlay.addView(TextView(this).apply {
+            text = "Receba a transmissão em sua TV"; textSize = 22f
+            setTextColor(Color.parseColor("#D6D3F5")); gravity = Gravity.CENTER
         })
         statusText = TextView(this).apply {
-            textSize = 24f; setTextColor(Color.parseColor("#C8D7FF")); gravity = Gravity.CENTER
-            setPadding(40, 20, 40, 0)
+            textSize = 20f; gravity = Gravity.CENTER
+            setPadding(dp(28), dp(12), dp(28), dp(12))
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(a: CharSequence?, b: Int, c: Int, e: Int) {}
+                override fun onTextChanged(a: CharSequence?, b: Int, c: Int, e: Int) {}
+                override fun afterTextChanged(e: android.text.Editable?) { paintStatus() }
+            })
         }
-        overlay.addView(statusText)
+        overlay.addView(statusText, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { topMargin = dp(28) })
         titleText = TextView(this).apply {
-            textSize = 30f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
-            setPadding(60, 40, 60, 0); maxLines = 2
+            textSize = 28f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(dp(60), dp(24), dp(60), 0); maxLines = 2
         }
         overlay.addView(titleText)
+        val tag = android.text.SpannableStringBuilder("Conecte • Transmita • Aproveite").apply {
+            setSpan(android.text.style.ForegroundColorSpan(LILAC), 10, length, 0)
+        }
+        overlay.addView(TextView(this).apply {
+            text = tag; textSize = 18f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, dp(30), 0, 0)
+        })
         root.addView(overlay, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
         footer = TextView(this).apply {
-            textSize = 16f; setTextColor(Color.parseColor("#8090B0")); setPadding(30, 20, 30, 20)
+            textSize = 15f; setTextColor(Color.parseColor("#A9A5D6")); setPadding(dp(24), dp(14), dp(24), dp(14))
         }
         root.addView(footer, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.BOTTOM or Gravity.START))
+
+        // barrinha de atualização (canto de cima)
+        updateBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#E6251E5C")); cornerRadius = dp(18).toFloat()
+                setStroke(dp(2), Color.parseColor("#9D5CFF"))
+            }
+            setPadding(dp(20), dp(10), dp(10), dp(10))
+            visibility = View.GONE
+        }
+        updateText = TextView(this).apply { textSize = 17f; setTextColor(Color.WHITE); setPadding(0, 0, dp(16), 0) }
+        updateBar.addView(updateText)
+        updateBtn = android.widget.Button(this).apply {
+            textSize = 17f; isAllCaps = false; setTextColor(Color.WHITE)
+            stateListAnimator = null
+            val normal = GradientDrawable().apply { setColor(Color.parseColor("#7C3AED")); cornerRadius = dp(22).toFloat() }
+            val focused = GradientDrawable().apply {
+                setColor(Color.parseColor("#9D5CFF")); cornerRadius = dp(22).toFloat(); setStroke(dp(3), Color.WHITE)
+            }
+            background = android.graphics.drawable.StateListDrawable().apply {
+                addState(intArrayOf(android.R.attr.state_focused), focused)
+                addState(intArrayOf(), normal)
+            }
+            setPadding(dp(22), dp(8), dp(22), dp(8))
+            setOnClickListener { onUpdateClick() }
+        }
+        updateBar.addView(updateBtn)
+        root.addView(updateBar, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.TOP or Gravity.END).apply {
+            topMargin = dp(20); rightMargin = dp(20)
+        })
         return root
+    }
+
+    private fun paintStatus() {
+        val s = statusText.text?.toString() ?: ""
+        val d = resources.displayMetrics.density
+        val (bg, stroke, fg) = when {
+            s.startsWith("Conectado") || s.startsWith("Tocando") || s.startsWith("Modo") ->
+                Triple("#0F3D26", "#22C55E", "#B9F8CF")
+            s.startsWith("Procurando") || s.startsWith("Carregando") -> Triple("#2A2463", "#9D5CFF", "#E4DCFF")
+            s.isEmpty() -> Triple("#00000000", "#00000000", "#FFFFFF")
+            else -> Triple("#3D1414", "#EF4444", "#FECACA")
+        }
+        statusText.setTextColor(Color.parseColor(fg))
+        statusText.background = GradientDrawable().apply {
+            setColor(Color.parseColor(bg)); cornerRadius = 30 * d; setStroke((2 * d).toInt(), Color.parseColor(stroke))
+        }
+    }
+
+    // ------------------------------------------------------------------ atualização automática
+
+    private lateinit var updateBar: LinearLayout
+    private lateinit var updateText: TextView
+    private lateinit var updateBtn: android.widget.Button
+
+    private val updateCheck = object : Runnable {
+        override fun run() {
+            Updater.check(this@MainActivity, force = true, autoDownload = true)
+            ui.postDelayed(this, 6 * 60 * 60 * 1000L)
+        }
+    }
+
+    private fun refreshUpdate() {
+        if (Updater.message.isNotEmpty()) Updater.clearMessage()
+        val r = Updater.release
+        val wasVisible = updateBar.visibility == View.VISIBLE
+        when (Updater.stage) {
+            Updater.Stage.IDLE -> { updateBar.visibility = View.GONE; return }
+            Updater.Stage.AVAILABLE -> { updateText.text = "Nova versão do Simulplay (${r?.version})"; updateBtn.text = "Atualizar"; updateBtn.visibility = View.VISIBLE }
+            Updater.Stage.DOWNLOADING -> { updateText.text = "Baixando atualização… ${Updater.percent}%"; updateBtn.visibility = View.GONE }
+            Updater.Stage.READY -> {
+                updateText.text = if (Updater.needsPermission(this)) "Atualização pronta. Libere \"apps desconhecidos\" pro Simulplay" else "Atualização pronta"
+                updateBtn.text = if (Updater.needsPermission(this)) "Liberar" else "Instalar agora"
+                updateBtn.visibility = View.VISIBLE
+            }
+            Updater.Stage.INSTALLING -> { updateText.text = "Instalando…"; updateBtn.visibility = View.GONE }
+            Updater.Stage.ERROR -> { updateText.text = "A atualização falhou"; updateBtn.text = "Tentar de novo"; updateBtn.visibility = View.VISIBLE }
+        }
+        updateBar.visibility = View.VISIBLE
+        // no controle remoto: o botão já fica selecionado, é só apertar OK
+        if (updateBtn.visibility == View.VISIBLE && (!wasVisible || !updateBtn.hasFocus())) updateBtn.requestFocus()
+    }
+
+    private fun onUpdateClick() {
+        if (Updater.needsPermission(this)) { Updater.openPermissionScreen(this); return }
+        if (Updater.stage == Updater.Stage.READY) Updater.install(this) else Updater.download(this, thenInstall = true)
     }
 
     private fun updateOverlay() {
@@ -239,6 +358,15 @@ class MainActivity : Activity(), Link.Listener {
                 statusText.text = "Conectado a $phoneName\nEsperando você mandar algo pelo celular"
             }
             "adj" -> adjMs = j.optInt("ms")
+            "cfg" -> {
+                autoSync = j.optBoolean("sync", true)
+                val q = j.optInt("quality", 0)
+                val b = player.trackSelectionParameters.buildUpon()
+                    .clearVideoSizeConstraints()
+                    .setForceHighestSupportedBitrate(q == 1)
+                if (q == 2) b.setMaxVideoSize(854, 480)
+                player.trackSelectionParameters = b.build()
+            }
             "audio" -> {
                 val h = host ?: return
                 if (j.optBoolean("on")) {
@@ -397,6 +525,7 @@ class MainActivity : Activity(), Link.Listener {
         if (!player.playWhenReady && !startScheduled) player.playWhenReady = true
         if (player.playbackState != Player.STATE_READY || startScheduled) return
 
+        if (!autoSync) { setSpeed(1f); return }
         val diff = player.currentPosition - target
         if (abs(diff) > 600) {
             if (now > seekCooldownUntil) {
@@ -452,7 +581,7 @@ class MainActivity : Activity(), Link.Listener {
             seekCooldownUntil = now + 2000
             return
         }
-        if (ytState == 1 && abs(est - target) > 300 && now > seekCooldownUntil) {
+        if (autoSync && ytState == 1 && abs(est - target) > 300 && now > seekCooldownUntil) {
             web.evaluateJavascript("seek(${target + 350})", null)
             seekCooldownUntil = now + 3000
         }

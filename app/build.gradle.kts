@@ -11,8 +11,10 @@ android {
         applicationId = "com.geanalves.simulplay"
         minSdk = 22
         targetSdk = 34
-        versionCode = 2
-        versionName = "2.0"
+        // o GitHub Actions passa o número do build: cada build novo é uma versão maior
+        val build = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
+        versionCode = build
+        versionName = "1.$build"
     }
 
     signingConfigs {
