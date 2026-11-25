@@ -516,6 +516,8 @@ class MainActivity : Activity(), Link.Listener {
             }
             "adj" -> adjMs = j.optInt("ms")
             "bt" -> bt.handle(j)
+            // apito de calibração pelo microfone do celular (já conta o ajuste atual dessa TV)
+            "beep" -> Beeper.beepAt(j.optLong("at") - link.offset + adjMs, j.optDouble("freq", 2000.0), j.optInt("ms", 120))
             "cfg" -> {
                 autoSync = j.optBoolean("sync", true)
                 val q = j.optInt("quality", 0)
