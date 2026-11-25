@@ -90,7 +90,7 @@ class CaixinhaView(ctx: Context, private val levels: () -> FloatArray) : FrameLa
             setTextColor(Color.parseColor("#0E7490"))
             background = GradientDrawable().apply { setColor(Color.parseColor("#ECFEFF")); cornerRadius = dp(14).toFloat() }
             setPadding(dp(14), dp(5), dp(14), dp(5))
-        })
+        }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
         bottom.addView(TextView(ctx).apply {
             text = "Tocando o som do celular"; textSize = 30f; setTextColor(ink); typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER; setPadding(0, dp(12), 0, dp(2))
