@@ -55,7 +55,10 @@ class BtManager(private val act: Activity, private val send: (JSONObject) -> Uni
                 }
                 BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
                     scanning = false
-                    if (found.isEmpty()) msg("Não achei nenhuma caixa. Coloque a caixa em modo de pareamento e procure de novo.")
+                    if (found.isEmpty()) msg(
+                        if (canScan()) "Não achei nenhuma caixa. Coloque a caixa em modo de pareamento e procure de novo."
+                        else "A TV não deixou o app procurar. Toque em \"Parear pela TV\" e escolha a caixa com o controle; depois ela aparece aqui.",
+                    )
                     pushState()
                 }
                 BluetoothAdapter.ACTION_STATE_CHANGED -> pushState()
@@ -96,7 +99,7 @@ class BtManager(private val act: Activity, private val send: (JSONObject) -> Uni
             addAction(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED)
         }
         try { act.registerReceiver(receiver, f); registered = true } catch (_: Exception) {}
-        if (hasPerms()) openProxy()
+        if (canConnect()) openProxy()
     }
 
     fun stop() {
@@ -118,37 +121,59 @@ class BtManager(private val act: Activity, private val send: (JSONObject) -> Uni
 
     // ------------------------------------------------------------------ permissões
 
-    private fun needed(): Array<String> = when {
-        Build.VERSION.SDK_INT >= 31 -> arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
-        Build.VERSION.SDK_INT >= 23 -> arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
-        else -> emptyArray()
+    private fun granted(p: String) = act.checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
+
+    /** ver e conectar as caixas pareadas: até o Android 11 não precisa pedir nada */
+    fun canConnect() = Build.VERSION.SDK_INT < 31 || granted(Manifest.permission.BLUETOOTH_CONNECT)
+
+    /** procurar caixas novas: precisa de Localização (Android 6 a 11) ou "dispositivos por perto" (12+) */
+    fun canScan() = when {
+        Build.VERSION.SDK_INT >= 31 -> granted(Manifest.permission.BLUETOOTH_SCAN)
+        Build.VERSION.SDK_INT >= 23 -> granted(Manifest.permission.ACCESS_FINE_LOCATION)
+        else -> true
     }
 
-    fun hasPerms() = Build.VERSION.SDK_INT < 23 ||
-        needed().all { act.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
+    /** pede sem travar nada: se a TV não mostrar o pedido, o resto continua funcionando */
+    private fun ask(forScan: Boolean) {
+        if (Build.VERSION.SDK_INT < 23) return
+        val list = when {
+            Build.VERSION.SDK_INT >= 31 -> listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
+            forScan -> listOf(Manifest.permission.ACCESS_FINE_LOCATION)
+            else -> emptyList()
+        }.filter { !granted(it) }
+        if (list.isEmpty()) return
+        try { act.requestPermissions(list.toTypedArray(), REQ_PERM) } catch (_: Exception) {}
+    }
 
     fun onPermissionResult() {
-        if (hasPerms()) { openProxy(); pendingOp?.let { pendingOp = null; handle(it) } }
-        else msg("A TV precisa da permissão de Bluetooth. Abra o Simulplay e aceite.")
+        if (canConnect()) openProxy()
+        pendingOp?.let { pendingOp = null; handle(it) }
+        pushState()
     }
 
     // ------------------------------------------------------------------ comandos do celular
 
     fun handle(j: JSONObject) {
         if (adapter == null) { msg("Essa TV não tem Bluetooth."); pushState(); return }
-        if (!hasPerms() && Build.VERSION.SDK_INT >= 23) {
+        val op = j.optString("op")
+        when (op) {
+            "settings" -> { openSettings(); return }
+            "appsettings" -> { openAppSettings(); return }
+            "ask" -> { ask(forScan = true); pushState(); return }
+        }
+        // Android 12+ sem permissão: pede, e faz o pedido de novo quando aceitar
+        if (!canConnect()) {
             pendingOp = j
-            msg("Aceite a permissão de Bluetooth na tela da TV (aperte OK no controle).")
-            act.requestPermissions(needed(), REQ_PERM)
+            ask(forScan = false)
+            pushState()
             return
         }
         openProxy()
-        when (j.optString("op")) {
+        when (op) {
             "state" -> pushState()
-            "scan" -> scan()
+            "scan" -> { if (!canScan()) ask(forScan = true); scan() }
             "connect" -> connect(j.optString("addr"))
             "disconnect" -> disconnect(j.optString("addr"))
-            "settings" -> openSettings()
         }
     }
 
@@ -232,6 +257,14 @@ class BtManager(private val act: Activity, private val send: (JSONObject) -> Uni
         msg("Essa TV não deixa o app conectar sozinho. Abri o Bluetooth na TV: escolha \"${safeName(d) ?: "a caixa"}\" com o controle.")
     }
 
+    private fun openAppSettings() {
+        try {
+            act.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                android.net.Uri.parse("package:${act.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            msg("Abri as configurações do Simulplay na TV: entre em Permissões e libere Bluetooth/Dispositivos por perto.")
+        } catch (_: Exception) { openSettings() }
+    }
+
     private fun openSettings() {
         try { act.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
         catch (_: Exception) { try { act.startActivity(Intent(Settings.ACTION_SETTINGS)) } catch (_: Exception) {} }
@@ -269,8 +302,10 @@ class BtManager(private val act: Activity, private val send: (JSONObject) -> Uni
         val st = JSONObject().put("t", "bt")
         val s = JSONObject()
         s.put("has", a != null)
-        s.put("perm", hasPerms())
-        if (a != null && hasPerms()) {
+        s.put("perm", canConnect())
+        s.put("scanPerm", canScan())
+        s.put("sdk", Build.VERSION.SDK_INT)
+        if (a != null && canConnect()) {
             s.put("on", try { a.isEnabled } catch (_: Exception) { false })
             s.put("scanning", scanning)
             val connected = try { a2dp?.connectedDevices ?: emptyList() } catch (_: Exception) { emptyList() }

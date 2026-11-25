@@ -1,0 +1,21 @@
+name: Testes
+
+on:
+  workflow_dispatch:
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+      - name: Rodar testes
+        run: gradle testReleaseUnitTest --no-daemon --tests '*BtSimTest*' -i | grep -E "Android 1|Mensagens|Procurar sem|PASSED|FAILED|Exception|expected" || true
+      - name: Resultado
+        run: gradle testReleaseUnitTest --no-daemon --tests '*BtSimTest*'
