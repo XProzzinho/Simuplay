@@ -43,12 +43,21 @@ class BtManager(private val act: Activity, private val send: (JSONObject) -> Uni
                 BluetoothDevice.ACTION_FOUND -> {
                     @Suppress("DEPRECATION")
                     val d = i.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return
-                    if (isAudio(d) || (safeName(d) != null && d.bluetoothClass == null)) {
+                    if (canPlay(d)) {
                         found[d.address] = d
                         pushState()
                     }
                 }
-                BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> { scanning = false; pushState() }
+                BluetoothDevice.ACTION_NAME_CHANGED -> {
+                    @Suppress("DEPRECATION")
+                    val d = i.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return
+                    if (canPlay(d)) { found[d.address] = d; pushState() }
+                }
+                BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
+                    scanning = false
+                    if (found.isEmpty()) msg("Não achei nenhuma caixa. Coloque a caixa em modo de pareamento e procure de novo.")
+                    pushState()
+                }
                 BluetoothAdapter.ACTION_STATE_CHANGED -> pushState()
                 BluetoothDevice.ACTION_BOND_STATE_CHANGED -> {
                     @Suppress("DEPRECATION")
@@ -81,6 +90,7 @@ class BtManager(private val act: Activity, private val send: (JSONObject) -> Uni
         val f = IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_FOUND)
             addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
+            addAction(BluetoothDevice.ACTION_NAME_CHANGED)
             addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
             addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
             addAction(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED)
@@ -157,6 +167,13 @@ class BtManager(private val act: Activity, private val send: (JSONObject) -> Uni
     private fun scan() {
         val a = adapter ?: return
         if (!ensureOn()) { main.postDelayed({ if (a.isEnabled) scan() }, 2500); return }
+        if (Build.VERSION.SDK_INT in 29..30) {
+            val lm = act.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
+            if (lm != null && !lm.isLocationEnabled) {
+                msg("Nessa TV o Android só acha caixas com a Localização ligada. Abri as configurações: ligue a Localização e procure de novo.")
+                try { act.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)) } catch (_: Exception) {}
+            }
+        }
         try {
             if (a.isDiscovering) a.cancelDiscovery()
             found.clear()
@@ -235,6 +252,16 @@ class BtManager(private val act: Activity, private val send: (JSONObject) -> Uni
             c.hasService(BluetoothClass.Service.AUDIO) || c.hasService(BluetoothClass.Service.RENDER)
     }
 
+    /** pode tocar som? Tudo com nome, menos celular, computador e controle remoto (a Echo Dot entra aqui) */
+    private fun canPlay(d: BluetoothDevice): Boolean {
+        if (isAudio(d)) return true
+        val name = safeName(d) ?: return false
+        if (name.contains("echo", true) || name.contains("alexa", true)) return true
+        val major = try { d.bluetoothClass?.majorDeviceClass } catch (_: Exception) { null } ?: return true
+        return major != BluetoothClass.Device.Major.PHONE && major != BluetoothClass.Device.Major.COMPUTER &&
+            major != BluetoothClass.Device.Major.PERIPHERAL && major != BluetoothClass.Device.Major.IMAGING
+    }
+
     private fun dev(d: BluetoothDevice) = JSONObject().put("addr", d.address).put("name", safeName(d) ?: d.address)
 
     fun pushState() {
@@ -248,10 +275,12 @@ class BtManager(private val act: Activity, private val send: (JSONObject) -> Uni
             s.put("scanning", scanning)
             val connected = try { a2dp?.connectedDevices ?: emptyList() } catch (_: Exception) { emptyList() }
             s.put("connected", JSONArray().apply { connected.forEach { put(dev(it)) } })
-            val bonded = try { a.bondedDevices?.filter { isAudio(it) } ?: emptyList() } catch (_: Exception) { emptyList() }
+            val bonded = try { a.bondedDevices?.filter { canPlay(it) }?.sortedByDescending { isAudio(it) } ?: emptyList() } catch (_: Exception) { emptyList() }
             s.put("paired", JSONArray().apply { bonded.forEach { put(dev(it)) } })
             val bondedAddr = bonded.map { it.address }.toSet()
-            s.put("found", JSONArray().apply { found.values.filter { it.address !in bondedAddr }.forEach { put(dev(it)) } })
+            s.put("found", JSONArray().apply {
+                found.values.filter { it.address !in bondedAddr }.sortedByDescending { isAudio(it) }.forEach { put(dev(it)) }
+            })
             s.put("pending", pendingConnect ?: "")
         }
         st.put("state", s)
