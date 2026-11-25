@@ -109,8 +109,18 @@ class MainActivity : Activity(), Link.Listener {
                 updateOverlay()
             }
             override fun onPlayerError(error: PlaybackException) {
-                link.send(JSONObject().put("t", "error").put("msg", "não consegui tocar (${error.errorCodeName})"))
-                statusText.text = "Não consegui tocar esse link"
+                // detalhe do erro (ex.: 403 = o servidor recusou a TV)
+                var http = 0
+                var c: Throwable? = error.cause
+                while (c != null) {
+                    if (c is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) { http = c.responseCode; break }
+                    c = c.cause
+                }
+                link.send(JSONObject().put("t", "error").put("id", currentId).put("code", error.errorCode)
+                    .put("http", http).put("name", error.errorCodeName)
+                    .put("msg", "não consegui tocar (${error.errorCodeName}${if (http > 0) " $http" else ""})"))
+                statusText.text = "Não consegui abrir esse vídeo" +
+                    (if (http > 0) " (o servidor respondeu $http)" else " (${error.errorCodeName})")
             }
         })
 
