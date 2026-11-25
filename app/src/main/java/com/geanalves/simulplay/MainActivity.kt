@@ -70,6 +70,16 @@ class MainActivity : Activity(), Link.Listener {
     private var startScheduled = false
     private var lastSpeed = 1f
     @Volatile private var autoSync = true
+    private lateinit var nowBar: LinearLayout
+    private lateinit var nowFill: View
+    private lateinit var nowTime: TextView
+    private lateinit var pauseOverlay: LinearLayout
+    private lateinit var pauseTitle: TextView
+    private lateinit var startToast: LinearLayout
+    private lateinit var startToastText: TextView
+    private var lastTitle = ""
+    private var tickN = 0
+    private var wasPlaying = false
     private var hasVideo = false
 
     // estado do YouTube vindo da página
@@ -220,6 +230,25 @@ class MainActivity : Activity(), Link.Listener {
             setPadding(dp(60), dp(24), dp(60), 0); maxLines = 2
         }
         overlay.addView(titleText)
+        nowBar = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        val track = FrameLayout(this).apply {
+            background = GradientDrawable().apply { setColor(Color.argb(60, 255, 255, 255)); cornerRadius = dp(3).toFloat() }
+        }
+        nowFill = View(this).apply {
+            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.parseColor("#9D5CFF"), Color.parseColor("#E879F9"))).apply { cornerRadius = dp(3).toFloat() }
+        }
+        track.addView(nowFill, FrameLayout.LayoutParams(0, MATCH_PARENT))
+        nowBar.addView(track, LinearLayout.LayoutParams(dp(520), dp(6)))
+        nowTime = TextView(this).apply {
+            textSize = 16f; setTextColor(Color.parseColor("#D6D3F5")); gravity = Gravity.CENTER
+            setPadding(0, dp(10), 0, 0)
+        }
+        nowBar.addView(nowTime, LinearLayout.LayoutParams(dp(520), WRAP_CONTENT))
+        overlay.addView(nowBar, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { topMargin = dp(18) })
         val tag = android.text.SpannableStringBuilder("Conecte • Transmita • Aproveite").apply {
             setSpan(android.text.style.ForegroundColorSpan(LILAC), 10, length, 0)
         }
@@ -233,6 +262,53 @@ class MainActivity : Activity(), Link.Listener {
             textSize = 15f; setTextColor(Color.parseColor("#A9A5D6")); setPadding(dp(24), dp(14), dp(24), dp(14))
         }
         root.addView(footer, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.BOTTOM or Gravity.START))
+
+        // aviso de pausa por cima do vídeo
+        pauseOverlay = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.argb(110, 7, 6, 28))
+            visibility = View.GONE
+        }
+        val pauseCircle = FrameLayout(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL; setColor(Color.argb(190, 29, 24, 80)); setStroke(dp(2), Color.parseColor("#9D5CFF"))
+            }
+        }
+        pauseCircle.addView(ImageView(this).apply {
+            setImageDrawable(PauseBars(Color.WHITE))
+        }, FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER))
+        pauseOverlay.addView(pauseCircle, LinearLayout.LayoutParams(dp(120), dp(120)))
+        pauseOverlay.addView(TextView(this).apply {
+            text = "Pausado"; textSize = 26f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER; setPadding(0, dp(18), 0, dp(4))
+        })
+        pauseTitle = TextView(this).apply {
+            textSize = 18f; setTextColor(Color.parseColor("#D6D3F5")); gravity = Gravity.CENTER; maxLines = 1
+            setPadding(dp(60), 0, dp(60), 0)
+        }
+        pauseOverlay.addView(pauseTitle)
+        root.addView(pauseOverlay, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+
+        // nome do vídeo quando começa
+        startToast = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                setColor(Color.argb(200, 20, 14, 60)); cornerRadius = dp(22).toFloat(); setStroke(dp(1), Color.argb(60, 255, 255, 255))
+            }
+            setPadding(dp(10), dp(8), dp(22), dp(8))
+            alpha = 0f
+        }
+        startToast.addView(ImageView(this).apply { setImageResource(R.drawable.logo) }, LinearLayout.LayoutParams(dp(36), dp(36)))
+        startToastText = TextView(this).apply {
+            textSize = 17f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD; maxLines = 1
+            setPadding(dp(12), 0, 0, 0)
+        }
+        startToast.addView(startToastText)
+        root.addView(startToast, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.TOP or Gravity.START).apply {
+            topMargin = dp(24); leftMargin = dp(24)
+        })
 
         // barrinha de atualização (canto de cima)
         updateBar = LinearLayout(this).apply {
@@ -268,15 +344,66 @@ class MainActivity : Activity(), Link.Listener {
         return root
     }
 
+    /** cartão "tocando agora", aviso de pausa e nome do vídeo ao começar */
+    private fun updateNowUi() {
+        val s = state
+        val showingVideo = (kind == "media" && hasVideo) || kind == "youtube"
+        val playingNow = s?.playing == true && link.phoneNow() - adjMs >= (s?.at ?: 0)
+        // pausa por cima do vídeo
+        val paused = showingVideo && s != null && !s.playing
+        pauseOverlay.visibility = if (paused) View.VISIBLE else View.GONE
+        if (paused) pauseTitle.text = lastTitle
+        // só áudio: barrinha de progresso
+        val audioOnly = kind == "media" && !hasVideo && s != null
+        nowBar.visibility = if (audioOnly) View.VISIBLE else View.GONE
+        if (audioOnly) {
+            val dur = player.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+            val pos = player.currentPosition
+            val w = resources.displayMetrics.density * 520
+            nowFill.layoutParams = nowFill.layoutParams.apply { width = if (dur > 0) (w * pos / dur).toInt() else 0 }
+            nowTime.text = if (dur > 0) "${fmt(pos)}  /  ${fmt(dur)}" else fmt(pos)
+            if (!s!!.playing) statusText.text = "Pausado"
+            else if (statusText.text.startsWith("Pausado")) statusText.text = "Tocando junto com $phoneName"
+        }
+        // nome do vídeo quando começa a tocar
+        if (playingNow && !wasPlaying && showingVideo && lastTitle.isNotBlank()) {
+            startToastText.text = "▶  " + lastTitle
+            startToast.animate().cancel()
+            startToast.animate().alpha(1f).setDuration(300).withEndAction {
+                startToast.animate().alpha(0f).setStartDelay(3500).setDuration(600).start()
+            }.start()
+        }
+        wasPlaying = playingNow
+    }
+
+    private fun fmt(ms: Long): String {
+        val t = ms / 1000
+        return if (t >= 3600) "%d:%02d:%02d".format(t / 3600, (t / 60) % 60, t % 60) else "%d:%02d".format(t / 60, t % 60)
+    }
+
+    /** ícone de pausa desenhado (duas barrinhas) */
+    private class PauseBars(private val color: Int) : android.graphics.drawable.Drawable() {
+        private val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+        override fun draw(c: android.graphics.Canvas) {
+            val b = bounds; val w = b.width() * 0.26f; val g = b.width() * 0.14f; val r = b.width() * 0.06f
+            c.drawRoundRect(b.exactCenterX() - g - w, b.top + b.height() * 0.12f, b.exactCenterX() - g, b.bottom - b.height() * 0.12f, r, r, p)
+            c.drawRoundRect(b.exactCenterX() + g, b.top + b.height() * 0.12f, b.exactCenterX() + g + w, b.bottom - b.height() * 0.12f, r, r, p)
+        }
+        override fun setAlpha(a: Int) { p.alpha = a }
+        override fun setColorFilter(cf: android.graphics.ColorFilter?) { p.colorFilter = cf }
+        @Deprecated("Deprecated in Java")
+        override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
+    }
+
     private fun paintStatus() {
         val s = statusText.text?.toString() ?: ""
         val d = resources.displayMetrics.density
         val (bg, stroke, fg) = when {
             s.startsWith("Conectado") || s.startsWith("Tocando") || s.startsWith("Modo") ->
-                Triple("#0F3D26", "#22C55E", "#B9F8CF")
-            s.startsWith("Procurando") || s.startsWith("Carregando") -> Triple("#2A2463", "#9D5CFF", "#E4DCFF")
+                Triple("#3322C55E", "#8022C55E", "#C9FAD9")
+            s.startsWith("Procurando") || s.startsWith("Carregando") || s.startsWith("Pausado") -> Triple("#22FFFFFF", "#559D5CFF", "#E4DCFF")
             s.isEmpty() -> Triple("#00000000", "#00000000", "#FFFFFF")
-            else -> Triple("#3D1414", "#EF4444", "#FECACA")
+            else -> Triple("#40EF4444", "#99EF4444", "#FECACA")
         }
         statusText.setTextColor(Color.parseColor(fg))
         statusText.background = GradientDrawable().apply {
@@ -405,6 +532,7 @@ class MainActivity : Activity(), Link.Listener {
         hasVideo = false
         kind = j.optString("kind")
         val title = j.optString("title")
+        lastTitle = title
         var url = j.optString("url")
         if (j.optBoolean("local")) url = "http://$host:${Proto.HTTP_PORT}$url"
 
@@ -476,6 +604,7 @@ class MainActivity : Activity(), Link.Listener {
         override fun run() {
             try {
                 if (kind == "media") syncMedia() else if (kind == "youtube") syncYoutube()
+                if (++tickN % 5 == 0) updateNowUi()
             } catch (_: Exception) {}
             ui.postDelayed(this, 50)
         }
