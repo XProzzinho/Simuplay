@@ -215,8 +215,8 @@ class MainActivity : Activity(), Link.Listener {
         }
         overlay.addView(TextView(this).apply {
             text = tag; textSize = 18f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, dp(30), 0, 0)
-        })
+            setPadding(0, dp(30), 0, 0); gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         root.addView(overlay, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
         footer = TextView(this).apply {
@@ -252,8 +252,8 @@ class MainActivity : Activity(), Link.Listener {
             setOnClickListener { onUpdateClick() }
         }
         updateBar.addView(updateBtn)
-        root.addView(updateBar, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.TOP or Gravity.END).apply {
-            topMargin = dp(20); rightMargin = dp(20)
+        root.addView(updateBar, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.BOTTOM or Gravity.END).apply {
+            bottomMargin = dp(20); rightMargin = dp(20)
         })
         return root
     }
