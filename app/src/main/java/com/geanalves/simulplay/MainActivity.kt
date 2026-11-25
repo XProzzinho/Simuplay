@@ -29,6 +29,11 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
+import androidx.media3.common.MimeTypes
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import android.net.Uri
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -84,6 +89,10 @@ class MainActivity : Activity(), Link.Listener {
         hideSystemBars()
 
         player = ExoPlayer.Builder(this).build()
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setPreferredTextLanguage("pt")
+            .setPreferredAudioLanguages("pt", "por")
+            .build()
         player.setAudioAttributes(
             androidx.media3.common.AudioAttributes.Builder()
                 .setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),
@@ -273,7 +282,35 @@ class MainActivity : Activity(), Link.Listener {
             val id = url.filter { it.isLetterOrDigit() || it == '-' || it == '_' }
             if (ytPageReady) web.evaluateJavascript("load('$id')", null) else ytPending = id
         } else {
-            player.setMediaItem(MediaItem.fromUri(url))
+            // cabeçalhos que o site exige (Referer, cookies...)
+            val headers = mutableMapOf<String, String>()
+            j.optJSONObject("headers")?.let { h -> h.keys().forEach { k -> headers[k] = h.optString(k) } }
+            val ua = headers.remove("User-Agent")
+            val http = DefaultHttpDataSource.Factory()
+                .setAllowCrossProtocolRedirects(true)
+                .setConnectTimeoutMs(15000)
+                .setReadTimeoutMs(20000)
+                .setDefaultRequestProperties(headers)
+            if (ua != null) http.setUserAgent(ua)
+            val factory = DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http))
+
+            val b = MediaItem.Builder().setUri(url)
+            when (j.optString("mime")) {
+                "m3u8" -> b.setMimeType(MimeTypes.APPLICATION_M3U8)
+                "mpd" -> b.setMimeType(MimeTypes.APPLICATION_MPD)
+            }
+            val sub = j.optString("sub")
+            if (sub.isNotEmpty()) {
+                val subUrl = if (j.optBoolean("subLocal")) "http://$host:${Proto.HTTP_PORT}$sub" else sub
+                b.setSubtitleConfigurations(listOf(
+                    MediaItem.SubtitleConfiguration.Builder(Uri.parse(subUrl))
+                        .setMimeType(j.optString("subMime", MimeTypes.APPLICATION_SUBRIP))
+                        .setLanguage("pt")
+                        .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                        .build(),
+                ))
+            }
+            player.setMediaSource(factory.createMediaSource(b.build()))
             player.playWhenReady = false
             player.prepare()
         }
