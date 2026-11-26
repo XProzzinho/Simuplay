@@ -21,6 +21,7 @@ object Proto {
     const val CONTROL_PORT = 47801
     const val HTTP_PORT = 47802
     const val AUDIO_PORT = 47803
+    const val VIDEO_PORT = 47804
     const val SAMPLE_RATE = 48000
 }
 

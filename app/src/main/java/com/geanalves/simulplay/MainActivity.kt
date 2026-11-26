@@ -111,6 +111,12 @@ class MainActivity : Activity(), Link.Listener {
     private var volume = 1f
     private var muted = false
     private lateinit var osd: TextView
+    // espelhar a tela do celular
+    private lateinit var mirrorBox: FrameLayout
+    private lateinit var mirrorView: android.view.SurfaceView
+    private lateinit var mirror: MirrorReceiver
+    private var mirrorOn = false
+    private var mirrorSurfaceReady = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -151,6 +157,7 @@ class MainActivity : Activity(), Link.Listener {
         })
 
         audio = AudioReceiver({ link.offset }, { adjMs })
+        mirror = MirrorReceiver({ link.offset }, { adjMs })
         link = Link(this, myName, this)
         bt = BtManager(this) { link.send(it) }
         bt.start()
@@ -163,6 +170,7 @@ class MainActivity : Activity(), Link.Listener {
     override fun onDestroy() {
         ui.removeCallbacks(tick)
         ui.removeCallbacks(updateCheck)
+        mirror.stop()
         bt.stop()
         Updater.listener = null
         link.stop()
@@ -286,6 +294,17 @@ class MainActivity : Activity(), Link.Listener {
         // tela do modo caixinha (som do celular)
         caixinha = CaixinhaView(this) { if (::audio.isInitialized) audio.bands else FloatArray(16) }
         root.addView(caixinha, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+
+        // tela do celular espelhada
+        mirrorBox = FrameLayout(this).apply { setBackgroundColor(Color.BLACK); visibility = View.GONE }
+        mirrorView = android.view.SurfaceView(this)
+        mirrorView.holder.addCallback(object : android.view.SurfaceHolder.Callback {
+            override fun surfaceCreated(h: android.view.SurfaceHolder) { mirrorSurfaceReady = true; startMirrorIfReady() }
+            override fun surfaceChanged(h: android.view.SurfaceHolder, f: Int, w: Int, hh: Int) {}
+            override fun surfaceDestroyed(h: android.view.SurfaceHolder) { mirrorSurfaceReady = false; if (::mirror.isInitialized) mirror.stop() }
+        })
+        mirrorBox.addView(mirrorView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT, Gravity.CENTER))
+        root.addView(mirrorBox, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
         // aviso de pausa por cima do vídeo
         pauseOverlay = LinearLayout(this).apply {
@@ -411,6 +430,38 @@ class MainActivity : Activity(), Link.Listener {
             }.start()
         }
         wasPlaying = playingNow
+    }
+
+    private fun setMirror(on: Boolean, w: Int, h: Int, delay: Int) {
+        mirror.delayMs = delay
+        if (!on) {
+            if (!mirrorOn) return
+            mirrorOn = false
+            mirror.stop()
+            mirrorBox.visibility = View.GONE
+            if (audio.isRunning()) caixinha.show(phoneName)
+            return
+        }
+        stopMedia()
+        caixinha.hide()
+        if (w > 0) { mirror.width = w; mirror.height = h }
+        fitMirror()
+        if (mirrorOn) return // já mostrando: a imagem nova chega sozinha
+        mirrorOn = true
+        mirrorBox.visibility = View.VISIBLE
+        startMirrorIfReady()
+    }
+
+    /** encaixa a imagem do celular na tela da TV sem esticar */
+    private fun fitMirror() {
+        val sw = resources.displayMetrics.widthPixels.toFloat(); val sh = resources.displayMetrics.heightPixels.toFloat()
+        val k = minOf(sw / mirror.width, sh / mirror.height)
+        mirrorView.layoutParams = FrameLayout.LayoutParams((mirror.width * k).toInt(), (mirror.height * k).toInt(), Gravity.CENTER)
+    }
+
+    private fun startMirrorIfReady() {
+        val h = host ?: return
+        if (mirrorOn && mirrorSurfaceReady) mirror.start(h, mirrorView.holder.surface)
     }
 
     private fun showOsd(text: String) {
@@ -564,6 +615,7 @@ class MainActivity : Activity(), Link.Listener {
     override fun onDisconnected() {
         stopMedia()
         audio.stop()
+        setMirror(false, 0, 0, 300)
         caixinha.hide()
         host = null
     }
@@ -613,12 +665,14 @@ class MainActivity : Activity(), Link.Listener {
                 if (q == 2) b.setMaxVideoSize(854, 480)
                 player.trackSelectionParameters = b.build()
             }
+            "mirror" -> setMirror(j.optBoolean("on"), j.optInt("w"), j.optInt("h"), j.optInt("delay", 300))
             "audio" -> {
                 val h = host ?: return
                 if (j.optBoolean("on")) {
                     stopMedia()
                     audio.start(h, j.optInt("delay", 300))
-                    caixinha.show(phoneName)
+                    mirror.delayMs = j.optInt("delay", 300)
+                    if (!mirrorOn) caixinha.show(phoneName)
                     statusText.text = "Modo caixinha"
                     titleText.text = "Tocando o som do celular de $phoneName"
                 } else {
