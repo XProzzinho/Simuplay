@@ -12,6 +12,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
@@ -103,10 +104,13 @@ class MainActivity : Activity(), Link.Listener {
     private var ytPageReady = false
     private var ytPending: String? = null
 
-    private val myName: String by lazy {
-        (try { Settings.Global.getString(contentResolver, "device_name") } catch (_: Exception) { null })
-            ?: "${Build.MANUFACTURER} ${Build.MODEL}"
-    }
+    private val prefs by lazy { getSharedPreferences("simulplay", MODE_PRIVATE) }
+    private val myName: String get() = prefs.getString("name", null)?.takeIf { it.isNotBlank() }
+        ?: (try { Settings.Global.getString(contentResolver, "device_name") } catch (_: Exception) { null })
+        ?: "${Build.MANUFACTURER} ${Build.MODEL}"
+    private var volume = 1f
+    private var muted = false
+    private lateinit var osd: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -196,6 +200,7 @@ class MainActivity : Activity(), Link.Listener {
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     ytPageReady = true
+                    evaluateJavascript("volume(${(volume * 100).toInt()}, $muted)", null)
                     ytPending?.let { evaluateJavascript("load('$it')", null) }
                     ytPending = null
                 }
@@ -329,6 +334,19 @@ class MainActivity : Activity(), Link.Listener {
             topMargin = dp(24); leftMargin = dp(24)
         })
 
+        // aviso rápido (volume, controle remoto)
+        osd = TextView(this).apply {
+            textSize = 20f; setTextColor(INK); typeface = Typeface.DEFAULT_BOLD
+            background = GradientDrawable().apply {
+                setColor(Color.argb(242, 255, 255, 255)); cornerRadius = dp(26).toFloat(); setStroke(dp(1), Color.parseColor("#DCE6F5"))
+            }
+            setPadding(dp(26), dp(12), dp(26), dp(12))
+            alpha = 0f
+        }
+        root.addView(osd, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
+            topMargin = dp(28)
+        })
+
         // barrinha de atualização (canto de cima)
         updateBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -393,6 +411,48 @@ class MainActivity : Activity(), Link.Listener {
             }.start()
         }
         wasPlaying = playingNow
+    }
+
+    private fun showOsd(text: String) {
+        osd.text = text
+        osd.animate().cancel()
+        osd.animate().alpha(1f).setDuration(150).withEndAction {
+            osd.animate().alpha(0f).setStartDelay(1400).setDuration(400).start()
+        }.start()
+    }
+
+    private fun applyVolume() {
+        val v = if (muted) 0f else volume
+        player.volume = v
+        audio.volume = v
+        if (::web.isInitialized) web.evaluateJavascript("volume(${(volume * 100).toInt()}, $muted)", null)
+    }
+
+    /** controle remoto da TV: manda o comando pro celular, que comanda todas as TVs juntas */
+    override fun dispatchKeyEvent(e: KeyEvent): Boolean {
+        if (host == null || (kind == "" ) || updateBar.visibility == View.VISIBLE && updateBtn.hasFocus()) return super.dispatchKeyEvent(e)
+        val k = when (e.keyCode) {
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_SPACE, KeyEvent.KEYCODE_HEADSETHOOK -> "toggle"
+            KeyEvent.KEYCODE_MEDIA_PLAY -> if (state?.playing == true) "" else "toggle"
+            KeyEvent.KEYCODE_MEDIA_PAUSE -> if (state?.playing == true) "toggle" else ""
+            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> "fwd"
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_REWIND -> "back"
+            KeyEvent.KEYCODE_MEDIA_NEXT, KeyEvent.KEYCODE_CHANNEL_UP -> "next"
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS, KeyEvent.KEYCODE_CHANNEL_DOWN -> "prev"
+            else -> null
+        } ?: return super.dispatchKeyEvent(e)
+        if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount == 0 && k.isNotEmpty()) {
+            link.send(JSONObject().put("t", "key").put("k", k))
+            showOsd(when (k) {
+                "toggle" -> if (state?.playing == true) "⏸  Pausar" else "▶  Tocar"
+                "fwd" -> "⏩  +10 s"
+                "back" -> "⏪  −10 s"
+                "next" -> "⏭  Próxima"
+                else -> "⏮  Anterior"
+            })
+        }
+        return true
     }
 
     private fun fmt(ms: Long): String {
@@ -523,11 +583,29 @@ class MainActivity : Activity(), Link.Listener {
                 statusText.text = "Conectado a $phoneName\nEsperando você mandar algo pelo celular"
             }
             "adj" -> adjMs = j.optInt("ms")
+            "vol" -> {
+                val v = j.optInt("v", 100).coerceIn(0, 100)
+                val m = j.optBoolean("mute")
+                val changed = volume != v / 100f || muted != m
+                volume = v / 100f; muted = m
+                applyVolume()
+                if (changed && host != null) showOsd(if (m) "🔇  Sem som" else "🔊  Volume $v%")
+            }
+            "name" -> {
+                val n = j.optString("name").trim()
+                if (n.isNotBlank()) {
+                    prefs.edit().putString("name", n).apply()
+                    link.rename(n)
+                    updateOverlay()
+                    showOsd("Agora esta TV se chama \"$n\"")
+                }
+            }
             "bt" -> bt.handle(j)
             // apito de calibração pelo microfone do celular (já conta o ajuste atual dessa TV)
             "beep" -> Beeper.beepAt(j.optLong("at") - link.offset + adjMs, j.optDouble("freq", 2000.0), j.optInt("ms", 120))
             "cfg" -> {
                 autoSync = j.optBoolean("sync", true)
+                if (j.has("boot")) prefs.edit().putBoolean("boot_start", j.optBoolean("boot", true)).apply()
                 val q = j.optInt("quality", 0)
                 val b = player.trackSelectionParameters.buildUpon()
                     .clearVideoSizeConstraints()

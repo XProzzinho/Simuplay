@@ -33,6 +33,7 @@
       events: {
         onReady: function () {
           try { Android.onRates(JSON.stringify(player.getAvailablePlaybackRates())); } catch (e) {}
+          applyVol();
           report();
         },
         onStateChange: function () { report(); },
@@ -51,6 +52,9 @@
   function pause() { if (player && player.pauseVideo) player.pauseVideo(); }
   function seek(ms) { if (player && player.seekTo) player.seekTo(ms / 1000, true); }
   function rate(r) { if (player && player.setPlaybackRate) player.setPlaybackRate(r); }
+  var vol = 100, muted = false;
+  function applyVol() { if (!player || !player.setVolume) return; player.setVolume(vol); if (muted) player.mute(); else player.unMute(); }
+  function volume(v, m) { vol = v; muted = m; applyVol(); }
   function stopVideo() { if (player && player.stopVideo) player.stopVideo(); }
 </script>
 </body>

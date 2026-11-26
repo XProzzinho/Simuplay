@@ -27,7 +27,7 @@ object Proto {
 /**
  * Acha o Transmiplay no Wi-Fi, conecta e acerta o relógio da TV com o do celular.
  */
-class Link(private val ctx: Context, private val myName: String, private val listener: Listener) {
+class Link(private val ctx: Context, @Volatile var myName: String, private val listener: Listener) {
     interface Listener {
         fun onSearching()
         fun onConnected(phoneName: String, host: String)
@@ -52,6 +52,12 @@ class Link(private val ctx: Context, private val myName: String, private val lis
         if (running) return
         running = true
         thread(name = "link", isDaemon = true) { loop() }
+    }
+
+    /** troca o nome e avisa o celular */
+    fun rename(n: String) {
+        myName = n
+        send(JSONObject().put("t", "hello").put("name", n))
     }
 
     fun stop() {

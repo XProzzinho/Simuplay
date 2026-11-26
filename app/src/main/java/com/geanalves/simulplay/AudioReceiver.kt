@@ -30,6 +30,9 @@ class AudioReceiver(
 
     fun isRunning() = running
 
+    /** volume mandado pelo celular (0 a 1) */
+    @Volatile var volume = 1f
+
     /** força do som agora, em 16 faixas (0 a 1), pra animação da tela */
     @Volatile var bands = FloatArray(16); private set
 
@@ -119,7 +122,9 @@ class AudioReceiver(
         val silence = ByteArray(rate * bytesPerFrame / 10) // 100 ms
         try {
             track.play()
+            var applied = -1f
             while (running && my == gen) {
+                if (applied != volume) { applied = volume; try { track.setVolume(applied) } catch (_: Exception) {} }
                 val p = queue.poll(200, TimeUnit.MILLISECONDS) ?: continue
                 // horário na TV em que esse pedaço deve sair no alto-falante
                 val target = p.ts - clockOffset() + delayMs + adjMs()
