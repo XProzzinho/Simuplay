@@ -47,6 +47,8 @@ private val INK = Color.parseColor("#0F172A")
 private val SOFT = Color.parseColor("#64748B")
 
 @SuppressLint("SetJavaScriptEnabled")
+private const val YT_TOLERANCE = 450L // diferença (ms) que o YouTube pode ter sem corrigir
+
 class MainActivity : Activity(), Link.Listener {
     private data class State(val id: Int, val playing: Boolean, val pos: Long, val at: Long)
 
@@ -103,6 +105,8 @@ class MainActivity : Activity(), Link.Listener {
     private var ytCorrectAfter = 0L
     private var ytPageReady = false
     private var ytPending: String? = null
+    private var ytPrimed = false
+    private var ytHoldUntil = 0L
 
     private val prefs by lazy { getSharedPreferences("simulplay", MODE_PRIVATE) }
     private val myName: String get() = prefs.getString("name", null)?.takeIf { it.isNotBlank() }
@@ -111,6 +115,7 @@ class MainActivity : Activity(), Link.Listener {
     private var volume = 1f
     private var muted = false
     private lateinit var osd: TextView
+    private lateinit var party: PartyPanel
     // espelhar a tela do celular
     private lateinit var mirrorBox: FrameLayout
     private lateinit var mirrorView: android.view.SurfaceView
@@ -352,6 +357,10 @@ class MainActivity : Activity(), Link.Listener {
         root.addView(startToast, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.TOP or Gravity.START).apply {
             topMargin = dp(24); leftMargin = dp(24)
         })
+
+        // modo festa: fila no canto do vídeo
+        party = PartyPanel(this)
+        root.addView(party, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
         // aviso rápido (volume, controle remoto)
         osd = TextView(this).apply {
@@ -616,6 +625,7 @@ class MainActivity : Activity(), Link.Listener {
         stopMedia()
         audio.stop()
         setMirror(false, 0, 0, 300)
+        party.update(JSONObject().put("on", false))
         caixinha.hide()
         host = null
     }
@@ -665,6 +675,7 @@ class MainActivity : Activity(), Link.Listener {
                 if (q == 2) b.setMaxVideoSize(854, 480)
                 player.trackSelectionParameters = b.build()
             }
+            "party" -> party.update(j)
             "mirror" -> setMirror(j.optBoolean("on"), j.optInt("w"), j.optInt("h"), j.optInt("delay", 300))
             "audio" -> {
                 val h = host ?: return
@@ -712,6 +723,7 @@ class MainActivity : Activity(), Link.Listener {
                 ytLoaded = true
             }
             val id = url.filter { it.isLetterOrDigit() || it == '-' || it == '_' }
+            ytPrimed = false; ytHoldUntil = 0
             if (ytPageReady) web.evaluateJavascript("load('$id')", null) else ytPending = id
         } else {
             // cabeçalhos que o site exige (Referer, cookies...)
@@ -884,6 +896,7 @@ class MainActivity : Activity(), Link.Listener {
         if (startScheduled) return
         val target = s.pos + (phoneNow - s.at)
         if (ytState != 1) {
+            if (now < ytHoldUntil) return // pausinha de acerto
             ytPlayingSince = 0L
             // parado sem motivo (não é carregando): volta a tocar; só pula se estiver MUITO longe
             if (ytState != 3 && now > seekCooldownUntil) {
@@ -896,46 +909,28 @@ class MainActivity : Activity(), Link.Listener {
         if (ytPlayingSince == 0L) { ytPlayingSince = now; ytDiffs.clear() }
         if (!autoSync) return
 
-        // terminou de acelerar/desacelerar: volta ao normal
-        if (ytRateUntil > 0 && now >= ytRateUntil) {
-            setYtRate(1.0); ytRateUntil = 0; ytDiffs.clear(); ytCorrectAfter = now + 2500
-            return
-        }
-        if (ytRateUntil > 0) return
-
-        // a posição do YouTube anda em "degraus"; junta várias medidas e usa a do meio
+        // A posição do YouTube anda em "degraus": junta várias medidas e usa a do meio.
         if (ytPosAt != ytLastStamp) {
             ytLastStamp = ytPosAt
             ytDiffs.addLast(est - target)
-            while (ytDiffs.size > 15) ytDiffs.removeFirst()
+            while (ytDiffs.size > 20) ytDiffs.removeFirst()
         }
-        if (now - ytPlayingSince < 3000 || now < ytCorrectAfter || ytDiffs.size < 10) return
+        // Sem acelerar nem frear (era isso que deixava "rápido" e "travando"):
+        // deixa tocar liso e só corrige diferença grande, no máximo uma vez a cada 20 s.
+        if (now - ytPlayingSince < 5000 || now < ytCorrectAfter || ytDiffs.size < 15) return
         val diff = ytDiffs.sorted()[ytDiffs.size / 2]
         when {
-            abs(diff) > 5000 && now > seekCooldownUntil -> {
-                // muito longe (raro): aí sim pula, uma vez
+            diff < -YT_TOLERANCE && now > seekCooldownUntil -> {
+                // TV atrasada: pula um pouco À FRENTE (o tempo de carregar) e depois espera os outros
                 web.evaluateJavascript("seek(${target + 1500})", null)
-                seekCooldownUntil = now + 8000; ytDiffs.clear(); ytCorrectAfter = now + 6000
+                seekCooldownUntil = now + 20_000; ytCorrectAfter = now + 8000; ytDiffs.clear()
             }
-            diff < -150 -> {
-                // TV atrasada: acelera um pouquinho até alcançar
-                val fast = ytRates.filter { it in 1.05..1.5 }.minOrNull()
-                if (fast != null) { setYtRate(fast); ytRateUntil = now + ((-diff) / (fast - 1.0)).toLong().coerceAtMost(15_000) }
-                else if (diff < -1500 && now > seekCooldownUntil) {
-                    web.evaluateJavascript("seek(${target + 1200})", null); seekCooldownUntil = now + 8000; ytCorrectAfter = now + 5000
-                }
-                ytDiffs.clear()
-            }
-            diff > 150 -> {
-                // TV adiantada: desacelera um pouquinho (ou dá uma pausinha)
-                val slow = ytRates.filter { it in 0.5..0.95 }.maxOrNull()
-                if (slow != null) { setYtRate(slow); ytRateUntil = now + (diff / (1.0 - slow)).toLong().coerceAtMost(15_000) }
-                else {
-                    web.evaluateJavascript("pause()", null)
-                    ui.postDelayed({ web.evaluateJavascript("play()", null) }, diff.coerceAtMost(3000))
-                    ytCorrectAfter = now + diff + 2500
-                }
-                ytDiffs.clear()
+            diff > YT_TOLERANCE -> {
+                // TV adiantada: uma pausinha do tamanho da diferença
+                web.evaluateJavascript("pause()", null)
+                ytHoldUntil = now + diff.coerceAtMost(4000)
+                ui.postDelayed({ if (kind == "youtube" && state?.playing == true) web.evaluateJavascript("play()", null) }, diff.coerceAtMost(4000))
+                ytCorrectAfter = now + diff + 20_000; ytDiffs.clear()
             }
         }
     }
@@ -957,6 +952,9 @@ class MainActivity : Activity(), Link.Listener {
                 if (durMs > 0) ytDur = durMs.toLong()
             }
         }
+
+        @JavascriptInterface
+        fun onPrimed() { ui.post { ytPrimed = true } }
 
         @JavascriptInterface
         fun onRates(json: String) {

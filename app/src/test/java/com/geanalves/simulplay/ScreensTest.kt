@@ -39,5 +39,16 @@ class ScreensTest {
         a.onMessage(JSONObject().put("t", "audio").put("on", true).put("delay", 300))
         shadowOf(Looper.getMainLooper()).idle()
         shot(root, "tv_3_caixinha")
+        a.onMessage(JSONObject().put("t", "audio").put("on", false))
+        val items = org.json.JSONArray()
+        listOf("Ai Se Eu Te Pego" to "João", "Garota de Ipanema" to "Bia", "Tá Escrito" to "Carlos",
+            "Sorriso Maroto" to "Ana", "Asa Branca" to "").forEachIndexed { i, (t, b) ->
+            items.put(JSONObject().put("title", t).put("by", b).put("in", 106_000L + i * 205_000L))
+        }
+        a.onMessage(JSONObject().put("t", "party").put("on", true).put("url", "http://192.168.0.10:47802/festa")
+            .put("now", JSONObject().put("title", "Evidências").put("by", "Ana"))
+            .put("items", items).put("count", 9).put("left", 2_530_000L))
+        shadowOf(Looper.getMainLooper()).idle()
+        shot(root, "tv_4_festa")
     }
 }

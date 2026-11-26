@@ -21,9 +21,28 @@
     if (pendingId) { var id = pendingId; pendingId = null; load(id); }
   }
 
+  // pré-carrega: toca sem som até o vídeo começar de verdade, pausa e volta pro começo.
+  // Assim, na hora de tocar junto, o vídeo já está carregado e não trava.
+  var priming = false, primeTimer = null;
+  function prime() {
+    if (!player || !player.playVideo) return;
+    priming = true;
+    try { player.mute(); player.playVideo(); } catch (e) {}
+    clearTimeout(primeTimer);
+    primeTimer = setTimeout(function () { if (priming) finishPrime(); }, 10000);
+  }
+  function finishPrime() {
+    priming = false;
+    clearTimeout(primeTimer);
+    try { player.pauseVideo(); player.seekTo(0, true); } catch (e) {}
+    applyVol();
+    try { Android.onPrimed(); } catch (e) {}
+    report();
+  }
+
   function load(id) {
     if (!apiReady) { pendingId = id; return; }
-    if (player && player.cueVideoById) { player.cueVideoById(id); return; }
+    if (player && player.cueVideoById) { priming = false; player.cueVideoById(id); setTimeout(prime, 300); return; }
     player = new YT.Player('p', {
       width: '100%', height: '100%', videoId: id,
       playerVars: {
@@ -35,20 +54,24 @@
           try { Android.onRates(JSON.stringify(player.getAvailablePlaybackRates())); } catch (e) {}
           applyVol();
           report();
+          prime();
         },
-        onStateChange: function () { report(); },
+        onStateChange: function (e) {
+          if (priming && e.data === 1) { finishPrime(); return; }
+          report();
+        },
         onError: function (e) { Android.onError(String(e.data)); }
       }
     });
   }
 
   function report() {
-    if (!player || !player.getCurrentTime) return;
+    if (!player || !player.getCurrentTime || priming) return;
     Android.onState(player.getPlayerState(), player.getCurrentTime() * 1000, player.getDuration() * 1000);
   }
   setInterval(report, 100);
 
-  function play() { if (player && player.playVideo) player.playVideo(); }
+  function play() { if (priming) { priming = false; applyVol(); } if (player && player.playVideo) player.playVideo(); }
   function pause() { if (player && player.pauseVideo) player.pauseVideo(); }
   function seek(ms) { if (player && player.seekTo) player.seekTo(ms / 1000, true); }
   function rate(r) { if (player && player.setPlaybackRate) player.setPlaybackRate(r); }
