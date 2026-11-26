@@ -50,5 +50,14 @@ class ScreensTest {
             .put("items", items).put("count", 9).put("left", 2_530_000L))
         shadowOf(Looper.getMainLooper()).idle()
         shot(root, "tv_4_festa")
+        // pedido novo: lista aparece com a música da pessoa destacada
+        items.put(JSONObject().put("title", "Evidências (ao vivo)").put("by", "Maria").put("in", 1_131_000L))
+        fun party(seq: Int) = JSONObject().put("t", "party").put("on", true).put("url", "http://192.168.0.10:47802/festa")
+            .put("now", JSONObject().put("title", "Evidências").put("by", "Ana"))
+            .put("items", items).put("count", 10).put("left", 2_740_000L)
+            .put("new", JSONObject().put("seq", seq).put("title", "Evidências (ao vivo)").put("by", "Maria").put("idx", 5).put("in", 1_131_000L))
+        a.onMessage(party(1)); shadowOf(Looper.getMainLooper()).idle()
+        a.onMessage(party(2)); shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(600))
+        shot(root, "tv_5_pedido_novo")
     }
 }
