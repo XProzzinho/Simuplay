@@ -107,8 +107,9 @@ class PartyPanel(ctx: Context) : FrameLayout(ctx) {
         banner.gravity = Gravity.CENTER
         banner.maxLines = 1; banner.ellipsize = TextUtils.TruncateAt.END
         banner.visibility = View.GONE
-        addView(banner, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
-            topMargin = dp(80); leftMargin = dp(40); rightMargin = dp(320)
+        banner.maxWidth = resources.displayMetrics.widthPixels - dp(27 + 270 + 27 + 24)
+        addView(banner, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START).apply {
+            topMargin = dp(84); leftMargin = dp(27)
         })
     }
 
