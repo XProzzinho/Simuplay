@@ -420,6 +420,7 @@ class MainActivity : Activity(), Link.Listener {
 
     /** cartão "tocando agora", aviso de pausa e nome do vídeo ao começar */
     private fun updateNowUi() {
+        if (::party.isInitialized) party.setVideo(kind == "youtube" || (kind == "media" && hasVideo) || mirrorOn)
         val s = state
         val showingVideo = (kind == "media" && hasVideo) || kind == "youtube"
         val playingNow = s?.playing == true && link.phoneNow() - adjMs >= (s?.at ?: 0)

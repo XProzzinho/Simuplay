@@ -21,9 +21,37 @@ import org.json.JSONObject
 class PartyPanel(ctx: Context) : FrameLayout(ctx) {
     private val d = resources.displayMetrics.density
     private fun dp(v: Int) = (v * d).toInt()
-    private val ink = Color.parseColor("#0F172A")
-    private val soft = Color.parseColor("#475569")
-    private val blue = Color.parseColor("#2563EB")
+    /** cores de cada estilo da festa */
+    private class Th(
+        val panel: Int, val stroke: Int, val text: Int, val soft: Int, val accent: Int, val dim: Int,
+        val firstBg: Int, val hiBg: Int, val hiStroke: Int, val hiText: Int, val hiSub: Int,
+        val bannerBg: Int, val bannerStroke: Int, val bannerText: Int, val qrTitle: String, val head: String,
+    )
+    private val themes = mapOf(
+        "luzes" to Th(Color.argb(190, 15, 23, 42), Color.argb(46, 255, 255, 255), Color.WHITE, Color.parseColor("#CBD5E1"),
+            Color.parseColor("#60A5FA"), Color.parseColor("#94A3B8"), Color.argb(46, 59, 130, 246),
+            Color.argb(72, 37, 99, 235), Color.parseColor("#60A5FA"), Color.WHITE, Color.parseColor("#93C5FD"),
+            Color.parseColor("#4F46E5"), Color.argb(90, 255, 255, 255), Color.WHITE, "Peça sua música!", "A seguir"),
+        "neon" to Th(Color.argb(190, 11, 4, 24), Color.argb(180, 103, 232, 249), Color.WHITE, Color.parseColor("#E9D5FF"),
+            Color.parseColor("#67E8F9"), Color.parseColor("#E9D5FF"), Color.argb(40, 103, 232, 249),
+            Color.argb(115, 134, 25, 143), Color.parseColor("#F0ABFC"), Color.WHITE, Color.parseColor("#F5D0FE"),
+            Color.argb(170, 88, 28, 135), Color.parseColor("#F0ABFC"), Color.WHITE, "PEÇA SUA MÚSICA", "A SEGUIR"),
+        "laser" to Th(Color.argb(210, 3, 8, 5), Color.argb(115, 74, 222, 128), Color.parseColor("#F0FDF4"), Color.parseColor("#BBF7D0"),
+            Color.parseColor("#4ADE80"), Color.parseColor("#86EFAC"), Color.argb(40, 74, 222, 128),
+            Color.parseColor("#4ADE80"), Color.parseColor("#4ADE80"), Color.parseColor("#03140A"), Color.parseColor("#14532D"),
+            Color.argb(200, 20, 83, 45), Color.parseColor("#4ADE80"), Color.parseColor("#F0FDF4"), "Peça sua música", "Fila"),
+        "claro" to Th(Color.argb(244, 255, 255, 255), Color.parseColor("#DCE6F5"), Color.parseColor("#0F172A"), Color.parseColor("#475569"),
+            Color.parseColor("#2563EB"), Color.parseColor("#94A3B8"), Color.parseColor("#EFF6FF"),
+            Color.parseColor("#DBEAFE"), Color.parseColor("#2563EB"), Color.parseColor("#0F172A"), Color.parseColor("#2563EB"),
+            Color.parseColor("#2563EB"), Color.parseColor("#2563EB"), Color.WHITE, "Peça sua música!", "A seguir"),
+    )
+    private var style = "luzes"
+    private var th = themes.getValue("luzes")
+    private val ink get() = th.text
+    private val soft get() = th.soft
+    private val blue get() = th.accent
+    private val bg = PartyBg(ctx)
+    private var videoOn = false
 
     private val pill = LinearLayout(ctx)
     private val pillAvatar = TextView(ctx)
@@ -50,10 +78,21 @@ class PartyPanel(ctx: Context) : FrameLayout(ctx) {
     init {
         visibility = View.GONE
         isFocusable = false
+        build()
+    }
+
+    private fun build() {
+        val ctx = context
+        removeAllViews(); pill.removeAllViews(); side.removeAllViews(); list.removeAllViews(); qrCard.removeAllViews()
+        (qr.parent as? android.view.ViewGroup)?.removeView(qr)
+        // fundo animado (só quando não tem vídeo passando)
+        bg.style = style
+        bg.visibility = if (videoOn) View.GONE else View.VISIBLE
+        addView(bg, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         // quem pediu a música atual (em cima, à esquerda)
         pill.orientation = LinearLayout.HORIZONTAL
         pill.gravity = Gravity.CENTER_VERTICAL
-        pill.background = round(Color.argb(240, 255, 255, 255), 999)
+        pill.background = round(th.panel, 999, th.stroke)
         pill.setPadding(dp(8), dp(7), dp(16), dp(7))
         pill.addView(pillAvatar, LinearLayout.LayoutParams(dp(26), dp(26)))
         pillText.textSize = 14f; pillText.setTextColor(ink); pillText.maxLines = 1
@@ -71,10 +110,10 @@ class PartyPanel(ctx: Context) : FrameLayout(ctx) {
 
         // fila (do lado direito)
         side.orientation = LinearLayout.VERTICAL
-        side.background = round(Color.argb(244, 255, 255, 255), 20)
+        side.background = round(th.panel, 20, th.stroke)
         side.setPadding(dp(16), dp(16), dp(16), dp(14))
         val head = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM }
-        head.addView(text("A seguir", 17f, ink, true), LinearLayout.LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+        head.addView(text(th.head, 17f, if (style == "neon") th.accent else ink, true), LinearLayout.LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
         leftText.textSize = 12f; leftText.setTextColor(soft)
         head.addView(leftText)
         side.addView(head)
@@ -87,11 +126,11 @@ class PartyPanel(ctx: Context) : FrameLayout(ctx) {
         // QR code no cantinho de baixo, com o passo a passo
         qrCard.orientation = LinearLayout.HORIZONTAL
         qrCard.gravity = Gravity.CENTER_VERTICAL
-        qrCard.background = round(Color.argb(244, 255, 255, 255), 16)
+        qrCard.background = round(th.panel, 16, if (style == "neon") th.bannerStroke else th.stroke)
         qrCard.setPadding(dp(10), dp(10), dp(16), dp(10))
         qrCard.addView(qr, LinearLayout.LayoutParams(dp(84), dp(84)))
         val qc = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), 0, 0, 0) }
-        qc.addView(text("Peça sua música!", 15f, blue, true))
+        qc.addView(text(th.qrTitle, 15f, if (style == "neon") th.bannerStroke else blue, true))
         qc.addView(text("1. Aponte a câmera do celular aqui", 11f, ink, false))
         qc.addView(text("2. Abra o link (no mesmo Wi-Fi)", 11f, ink, false))
         qc.addView(text("3. Cole um link ou mande sua música", 11f, ink, false))
@@ -102,7 +141,8 @@ class PartyPanel(ctx: Context) : FrameLayout(ctx) {
 
         // aviso de pedido novo (em cima, no meio)
         banner.textSize = 16f; banner.setTextColor(Color.WHITE); banner.typeface = Typeface.DEFAULT_BOLD
-        banner.background = round(blue, 999)
+        banner.background = round(th.bannerBg, if (style == "laser") 6 else 999, th.bannerStroke)
+        banner.setTextColor(th.bannerText)
         banner.setPadding(dp(22), dp(10), dp(22), dp(10))
         banner.gravity = Gravity.CENTER
         banner.maxLines = 1; banner.ellipsize = TextUtils.TruncateAt.END
@@ -113,7 +153,27 @@ class PartyPanel(ctx: Context) : FrameLayout(ctx) {
         })
     }
 
-    private fun round(color: Int, r: Int) = GradientDrawable().apply { setColor(color); cornerRadius = dp(r).toFloat() }
+    private fun round(color: Int, r: Int, stroke: Int = 0) = GradientDrawable().apply {
+        setColor(color); cornerRadius = dp(r).toFloat()
+        if (stroke != 0) setStroke(dp(1), stroke)
+    }
+
+    /** escolhido no celular: luzes, neon, laser ou claro */
+    fun setStyle(s: String) {
+        if (s == style || s !in themes) return
+        style = s; th = themes.getValue(s)
+        build()
+        listShown = true
+        last?.let { update(it) }
+    }
+
+    /** com vídeo passando o fundo some e fica só o vídeo por trás */
+    fun setVideo(on: Boolean) {
+        if (on == videoOn) return
+        videoOn = on
+        bg.visibility = if (on) View.GONE else View.VISIBLE
+        if (!on) bg.invalidate()
+    }
 
     private fun text(s: String, size: Float, color: Int, bold: Boolean) = TextView(context).apply {
         text = s; textSize = size; setTextColor(color)
@@ -140,6 +200,7 @@ class PartyPanel(ctx: Context) : FrameLayout(ctx) {
         if (!j.optBoolean("on")) { visibility = View.GONE; last = null; return }
         visibility = View.VISIBLE
         last = j
+        if (j.has("style")) setStyle(j.optString("style"))
         val nw = j.optJSONObject("new")
         if (nw != null && nw.optInt("seq") != lastSeq) {
             val first = lastSeq == -1
@@ -204,18 +265,18 @@ class PartyPanel(ctx: Context) : FrameLayout(ctx) {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(10), dp(8), dp(10), dp(8))
             background = when {
-                mine -> GradientDrawable().apply { setColor(Color.parseColor("#DBEAFE")); cornerRadius = dp(12).toFloat(); setStroke(dp(2), blue) }
-                i == 0 -> round(Color.parseColor("#EFF6FF"), 12)
+                mine -> GradientDrawable().apply { setColor(th.hiBg); cornerRadius = dp(12).toFloat(); setStroke(dp(2), th.hiStroke) }
+                i == 0 -> round(th.firstBg, 12)
                 else -> null
             }
         }
-        r.addView(text("${i + 1}", if (i == 0 || mine) 18f else 16f, if (i == 0 || mine) blue else Color.parseColor("#94A3B8"), true),
+        r.addView(text("${i + 1}", if (i == 0 || mine) 18f else 16f, when { mine -> th.hiText; i == 0 -> blue; else -> th.dim }, true),
             LinearLayout.LayoutParams(dp(24), LayoutParams.WRAP_CONTENT))
         val col = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-        col.addView(text(it.optString("title"), if (i == 0 || mine) 14f else 13f, ink, true))
+        col.addView(text(it.optString("title"), if (i == 0 || mine) 14f else 13f, if (mine) th.hiText else ink, true))
         val by = it.optString("by")
         col.addView(text((if (mine) "pedido novo · " else "") + (if (by.isNotBlank()) "$by · " else "") + "em ${fmt(it.optLong("in"))}",
-            11f, if (mine) blue else soft, mine))
+            11f, if (mine) th.hiSub else soft, mine))
         r.addView(col, LinearLayout.LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
         r.layoutParams = LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(2) }
         return r
@@ -256,7 +317,7 @@ class PartyPanel(ctx: Context) : FrameLayout(ctx) {
     private fun makeQr(text: String, size: Int): Bitmap {
         val m = com.google.zxing.qrcode.QRCodeWriter().encode(text, com.google.zxing.BarcodeFormat.QR_CODE, size, size,
             mapOf(com.google.zxing.EncodeHintType.MARGIN to 1))
-        val px = IntArray(size * size) { if (m[it % size, it / size]) ink else Color.WHITE }
+        val px = IntArray(size * size) { if (m[it % size, it / size]) Color.parseColor("#0F172A") else Color.WHITE }
         return Bitmap.createBitmap(px, size, size, Bitmap.Config.ARGB_8888)
     }
 }

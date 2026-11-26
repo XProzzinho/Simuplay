@@ -59,5 +59,10 @@ class ScreensTest {
         a.onMessage(party(1)); shadowOf(Looper.getMainLooper()).idle()
         a.onMessage(party(2)); shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(600))
         shot(root, "tv_5_pedido_novo")
+        for (st in listOf("luzes", "neon", "laser")) {
+            a.onMessage(party(2).put("style", st)); shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200))
+            a.onMessage(party(3 + st.length)); shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(600))
+            shot(root, "tv_6_estilo_$st")
+        }
     }
 }
