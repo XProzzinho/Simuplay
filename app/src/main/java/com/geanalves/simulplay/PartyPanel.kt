@@ -84,7 +84,8 @@ class PartyPanel(ctx: Context) : FrameLayout(ctx) {
     private fun build() {
         val ctx = context
         removeAllViews(); pill.removeAllViews(); side.removeAllViews(); list.removeAllViews(); qrCard.removeAllViews()
-        (qr.parent as? android.view.ViewGroup)?.removeView(qr)
+        for (v in listOf<View>(qr, pillAvatar, pillText, pillNext, leftText, list, banner, pill, side, qrCard))
+            (v.parent as? android.view.ViewGroup)?.removeView(v)
         // fundo animado (só quando não tem vídeo passando)
         bg.style = style
         bg.visibility = if (videoOn) View.GONE else View.VISIBLE
