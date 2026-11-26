@@ -15,6 +15,7 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.Executors
 import kotlin.concurrent.thread
+import kotlin.math.abs
 
 object Proto {
     const val DISCOVERY_PORT = 47800
@@ -151,9 +152,11 @@ class Link(private val ctx: Context, @Volatile var myName: String, private val l
         val off = sv - (c + rtt / 2)
         synchronized(samples) {
             samples.addLast(rtt to off)
-            while (samples.size > 20) samples.removeFirst()
+            while (samples.size > 30) samples.removeFirst()
             // a medida com menor tempo de ida e volta é a mais precisa
-            offset = samples.minByOrNull { it.first }!!.second
+            val best = samples.minByOrNull { it.first }!!.second
+            // muda o relógio devagarinho (no máximo 3 ms por vez): pulos no relógio viravam travadinhas
+            offset = if (!synced || abs(best - offset) > 150) best else offset + (best - offset).coerceIn(-3L, 3L)
         }
         synced = true
     }

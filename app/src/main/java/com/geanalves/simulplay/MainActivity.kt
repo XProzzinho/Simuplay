@@ -74,6 +74,11 @@ class MainActivity : Activity(), Link.Listener {
     private var reportedDur = false
     private var endedSent = false
     private var seekCooldownUntil = 0L
+    // diferença suavizada (a posição do player pula uns milissegundos a cada leitura)
+    private var mDiff = 0.0
+    private var mDiffInit = false
+    private var mCorrecting = false
+    private var mNextSpeedAt = 0L
     private var startScheduled = false
     private var lastSpeed = 1f
     @Volatile private var autoSync = true
@@ -129,7 +134,11 @@ class MainActivity : Activity(), Link.Listener {
         setContentView(buildUi())
         hideSystemBars()
 
-        player = ExoPlayer.Builder(this).build()
+        // guarda mais vídeo/música carregado antes de tocar e depois de uma travada (menos travadinhas)
+        val load = androidx.media3.exoplayer.DefaultLoadControl.Builder()
+            .setBufferDurationsMs(30_000, 90_000, 2_500, 5_000)
+            .build()
+        player = ExoPlayer.Builder(this).setLoadControl(load).build()
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .setPreferredTextLanguage("pt")
             .setPreferredAudioLanguages("pt", "por")
@@ -636,7 +645,7 @@ class MainActivity : Activity(), Link.Listener {
             "state" -> {
                 val s = State(j.optInt("id"), j.optBoolean("playing"), j.optLong("pos"), j.optLong("at"))
                 if (s.id == currentId) {
-                    if (s.playing && (state?.playing != true || state?.at != s.at)) { endedSent = false; seekCooldownUntil = 0 }
+                    if (s.playing && (state?.playing != true || state?.at != s.at)) { endedSent = false; seekCooldownUntil = 0; mDiffInit = false; mCorrecting = false }
                     state = s
                 }
             }
@@ -843,17 +852,26 @@ class MainActivity : Activity(), Link.Listener {
         if (player.playbackState != Player.STATE_READY || startScheduled) return
 
         if (!autoSync) { setSpeed(1f); return }
-        val diff = player.currentPosition - target
-        if (abs(diff) > 600) {
+        val raw = player.currentPosition - target
+        if (abs(raw) > 1500) {
+            // muito fora (raro): pula uma vez só
             if (now > seekCooldownUntil) {
-                setSpeed(1f)
+                setSpeed(1f); mCorrecting = false; mDiffInit = false
                 player.seekTo(target + 150)
-                seekCooldownUntil = now + 1500
+                seekCooldownUntil = now + 8000
             }
-        } else if (abs(diff) > 15) {
-            // corrige devagarinho acelerando ou freando um pouquinho (não dá pra perceber)
-            setSpeed((1f - diff / 2500f).coerceIn(0.95f, 1.05f))
-        } else setSpeed(1f)
+            return
+        }
+        mDiff = if (mDiffInit) mDiff * 0.92 + raw * 0.08 else raw.toDouble()
+        mDiffInit = true
+        // muda a velocidade no máximo 2 vezes por segundo e bem pouquinho (até 2%),
+        // só quando a diferença passa de 60 ms; para de corrigir abaixo de 15 ms
+        if (now < mNextSpeedAt) return
+        mNextSpeedAt = now + 500
+        val d = mDiff
+        if (!mCorrecting && abs(d) > 60) mCorrecting = true
+        if (mCorrecting && abs(d) < 15) { mCorrecting = false; setSpeed(1f); return }
+        if (mCorrecting) setSpeed((Math.round((1.0 - d / 3000.0) * 200) / 200.0).toFloat().coerceIn(0.98f, 1.02f))
     }
 
     private fun syncYoutube() {
